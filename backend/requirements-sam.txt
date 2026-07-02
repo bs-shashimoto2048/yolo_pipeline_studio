@@ -1,0 +1,14 @@
+# SAM支援アノテーション用の依存（軽量起動を壊さないため requirements.txt とは分離）。
+#
+# 導入前提:
+# - Windows + GPU 環境では、先に CUDA 対応 PyTorch を導入しておくこと
+#   （README「学習機能の導入」の cu128 手順を参照）。
+# - 学習機能（requirements-train.txt）で ultralytics を導入済みなら重複しても問題ない。
+#
+# 導入:
+#   .\.venv\Scripts\python.exe -m pip install -r backend/requirements-sam.txt
+#
+# SAM/torch/ultralytics/opencv-python は backend/requirements.txt には追加しない。
+
+ultralytics
+opencv-python

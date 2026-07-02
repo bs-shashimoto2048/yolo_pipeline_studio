@@ -1,0 +1,55 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== 案件データ（画像・ラベル・学習結果・モデル・レポート等） =====
+# 画像/アノテ/データセット/学習ラン/推論/映像/エクスポートなどを含むため丸ごと除外
+projects/
+
+# ===== モデル重み・学習/推論の生成物（コミットしない） =====
+*.pt
+*.pth
+*.onnx
+*.engine
+*.torchscript
+*.tflite
+*.mlmodel
+*.weights
+
+# ダウンロードされる事前学習重み（例: リポジトリ直下の sam2_t.pt / yolov8n.pt など）
+/sam2_*.pt
+/yolo*.pt
+/sam_*.pt
+
+# ===== Node / フロントエンド =====
+node_modules/
+dist/
+.vite/
+*.local
+
+# ===== ログ・一時ファイル =====
+*.log
+*.tmp
+tmp/
+scratch/
+
+# ===== 秘密情報（読み書きしない） =====
+.env
+.env.*
+*.pem
+*.key
+
+# ===== IDE / OS =====
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

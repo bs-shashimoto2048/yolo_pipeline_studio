@@ -1,0 +1,10 @@
+# YOLO Tuning Studio - バックエンド依存（軽量のみ）
+# 学習系の重いライブラリ（ultralytics / torch 等）はここには含めない。
+# それらは学習Issue着手時に requirements-train.txt で別管理する。
+
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+python-multipart>=0.0.9
+PyYAML>=6.0
+Pillow>=10.0

@@ -1,0 +1,24 @@
+# YOLO Tuning Studio - 学習用依存（軽量 requirements.txt とは別管理）
+#
+# 学習ジョブ（Ultralytics YOLO）を実行する環境にのみ導入する。
+# 軽量な requirements.txt には ultralytics / torch を含めない。
+#
+# 導入（既存の .venv に追加する例）:
+#   .\.venv\Scripts\python.exe -m pip install -r requirements-train.txt
+#
+# GPU(CUDA)版 torch を使う場合は、先に PyTorch 公式インデックスから torch 系を
+# 入れてから本ファイルを導入すること（Windows + NVIDIA、例）:
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+#   （環境に応じて cu126 等へ。詳細は README「Windows + NVIDIA GPU（CUDA）で導入する場合」）
+# 何も指定しなければ CPU 版が入る。
+
+ultralytics
+torch
+torchvision
+torchaudio
+
+# ONNXエクスポート（Issue 027）用。Ultralytics の export が自動導入する場合もあるが、
+# 環境により失敗することがあるため明示しておく。
+onnx
+onnxruntime
+onnxslim
