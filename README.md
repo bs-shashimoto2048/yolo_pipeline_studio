@@ -86,11 +86,21 @@ yolo_pipeline_studio/
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1          # Windows PowerShell（macOS/Linux は source .venv/bin/activate）
 pip install -r requirements.txt
+
+# 【リポジトリ直下から起動する場合】
 uvicorn app.main:app --reload --app-dir backend --port 8000
+
+# 【backend/ ディレクトリに移動して起動する場合は --app-dir を付けない】
+#   cd backend
+#   uvicorn app.main:app --reload --port 8000
 ```
 
 - API: http://localhost:8000
 - API ドキュメント（Swagger UI）: http://localhost:8000/docs
+
+> `--app-dir backend` は**リポジトリ直下で実行する前提**です。`backend/` の中にいる場合は
+> `--app-dir` を外して `uvicorn app.main:app --reload --port 8000` としてください
+> （付けると `backend/backend/app` を探して `ModuleNotFoundError: No module named 'app'` になります）。
 
 > `--reload` 使用時は `.venv` を監視して過剰リロードにならないよう、
 > 開発中は `--reload-dir backend/app` の併用を推奨します。
