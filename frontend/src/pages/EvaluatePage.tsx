@@ -420,6 +420,7 @@ export default function EvaluatePage() {
                       thumbSrc={a.url}
                       fullSrc={a.url}
                       alt={n}
+                      center
                       maxW={n === "results.png" ? 1500 : 1040}
                       maxH={n === "results.png" ? 1150 : 780}
                     />

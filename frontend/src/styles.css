@@ -230,6 +230,27 @@ input[type="range"] {
   word-break: break-all;
   color: #ffffff;
 }
+/* サイドバーのタスク種別バッジ（BBOX / Segmentation） */
+.side-task-badge {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+}
+.side-task-badge.det {
+  background: rgba(15, 95, 255, 0.22);
+  color: #cfe0ff;
+  border-color: rgba(120, 170, 255, 0.5);
+}
+.side-task-badge.seg {
+  background: rgba(17, 197, 217, 0.22);
+  color: #c7f4fb;
+  border-color: rgba(90, 220, 235, 0.5);
+}
 .steps nav {
   display: flex;
   flex-direction: column;
@@ -773,10 +794,61 @@ code {
   overflow-x: auto;
 }
 .thumb.selectable {
+  position: relative;
   cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
+/* 選択チェックバッジ（右上）: 未選択=淡い空円 / 選択=グラデ塗り+✓ */
+.thumb.selectable .sel-check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.8);
+  border: 2px solid var(--border);
+  color: transparent;
+  backdrop-filter: blur(2px);
+  box-shadow: 0 1px 4px rgba(16, 32, 51, 0.18);
+  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.thumb.selectable:hover .sel-check {
+  border-color: var(--primary);
+}
+/* 選択中: 太いリング＋青オーバーレイ＋バッジ点灯＋キャプション色付け */
 .thumb.selectable.on {
-  outline: 3px solid var(--accent);
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary) inset, 0 12px 26px rgba(15, 95, 255, 0.28);
+}
+.thumb.selectable.on .hover-img::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(15, 95, 255, 0.22), rgba(17, 197, 217, 0.22));
+  pointer-events: none;
+  z-index: 1;
+}
+.thumb.selectable.on figcaption {
+  background: var(--primary-soft);
+}
+.thumb.selectable.on figcaption .thumb-name {
+  color: var(--primary-dark);
+  font-weight: 600;
+}
+/* 未選択は少しだけ落ち着かせ、選択が引き立つように */
+.thumb.selectable:not(.on) .hover-img > img:not(.hover-img-preview) {
+  opacity: 0.92;
+}
+.thumb.selectable.on .sel-check {
+  background: var(--grad-primary);
+  border-color: #fff;
+  color: #fff;
+  transform: scale(1.05);
 }
 .predict-results {
   display: flex;
@@ -815,6 +887,95 @@ code {
   .predict-result-body {
     grid-template-columns: 1fr;
   }
+}
+
+/* ===== 実験履歴 詳細（他ページと統一したデザイン） ===== */
+.exp-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.exp-detail-head h2 {
+  margin: 0;
+}
+/* 項目ごとにコンテナ（カード）で分ける。カードは幅に応じて横並び */
+.exp-specs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin: 8px 0;
+  align-items: start;
+}
+.exp-specs > section {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+  padding: 10px 12px;
+}
+.exp-specs .spec-section-title {
+  margin-top: 0;
+}
+/* データごとにカード色を変える */
+.exp-specs > section:nth-of-type(1) {
+  background: #eef4ff;
+  border-left-color: var(--primary);
+}
+.exp-specs > section:nth-of-type(1) .spec-section-title {
+  color: var(--primary-dark);
+}
+.exp-specs > section:nth-of-type(2) {
+  background: #e9fbff;
+  border-left-color: var(--cyan);
+}
+.exp-specs > section:nth-of-type(2) .spec-section-title {
+  color: #0e93a6;
+}
+.exp-specs > section:nth-of-type(3) {
+  background: #f4efff;
+  border-left-color: #7c3aed;
+}
+.exp-specs > section:nth-of-type(3) .spec-section-title {
+  color: #6d28d9;
+}
+/* 色付き地に馴染むよう区切り線を薄く */
+.exp-specs .kv {
+  border-bottom-color: rgba(16, 32, 51, 0.08);
+}
+/* カード内はラベル/値のペアを2列で敷き詰め（タイル枠なしで軽く） */
+.kv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 6px 10px;
+}
+.kv {
+  min-width: 0;
+  padding: 3px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.kv .k {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+.kv .v {
+  display: block;
+  font-size: 0.92rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+.kv .v.success {
+  color: #059669;
+}
+.kv .v.error {
+  color: #dc2626;
+}
+.kv.kv-wide {
+  grid-column: 1 / -1;
 }
 
 /* ===== 誤検出分析: ヘッダ右上ジョブ / サマリー・詳細の2カラム ===== */
@@ -867,17 +1028,68 @@ code {
   font-size: 0.95rem;
   margin: 0 0 8px;
 }
-/* サマリーはインラインで縦を圧縮 */
-.analysis-stats {
+/* サマリー: 主要指標（KPI）を大きく表示 */
+.analysis-kpis {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.analysis-kpi {
+  background: linear-gradient(180deg, var(--primary-soft), #ffffff);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  text-align: center;
+}
+.analysis-kpi-value {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.analysis-kpi-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 2px;
+}
+/* サマリー: 件数の内訳（色分けチップ） */
+.analysis-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+  gap: 6px;
+}
+.analysis-count {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px 16px;
-  align-items: baseline;
+  flex-direction: column;
+  align-items: center;
+  padding: 6px 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
 }
-.analysis-stats .summary-value {
+.analysis-count-value {
   font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
-.analysis-stats .summary-value.warn {
+.analysis-count-label {
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+.analysis-count.good {
+  border-color: #34d399;
+  background: #ecfdf5;
+}
+.analysis-count.good .analysis-count-value {
+  color: #059669;
+}
+.analysis-count.warn {
+  border-color: #fbbf24;
+  background: #fffbeb;
+}
+.analysis-count.warn .analysis-count-value {
   color: #d97706;
 }
 /* 分析テーブルはコンパクト＋高さ上限 */
@@ -963,6 +1175,82 @@ code {
   }
 }
 
+/* 推論ログ表示（ターミナル風・色分け） */
+.predict-log-summary {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 0.9rem;
+  list-style: revert;
+  margin-bottom: 6px;
+}
+.predict-log-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 6px;
+  font-size: 0.78rem;
+}
+
+/* 推論ジョブ詳細: 実行中の進捗（不定プログレスバー） */
+.predict-detail-h2 {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.predict-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  /* ヘッダーの残り幅いっぱいに伸ばす（待ち時間を感じさせない長いバー） */
+  flex: 1 1 auto;
+  min-width: 160px;
+}
+.predict-progress-bar {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+/* 不定バー: グラデーションの帯が左右に流れる */
+.predict-progress-bar::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 35%;
+  border-radius: 999px;
+  background: var(--grad-primary);
+  animation: predict-indeterminate 1.1s ease-in-out infinite;
+}
+@keyframes predict-indeterminate {
+  0% { left: -35%; }
+  100% { left: 100%; }
+}
+.predict-progress-text {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--primary);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+/* ジョブ詳細は画面下限までに収め内部スクロール（高さは JS で動的設定・追従） */
+.predict-detail-card {
+  position: sticky;
+  top: 12px;
+}
+/* カード自体が単一のスクロール領域になるよう、内部の個別スクロールは解除 */
+.predict-detail-card .predict-results {
+  max-height: none;
+  overflow: visible;
+}
+
 /* 推論: ジョブ一覧(左4) / ジョブ詳細(右6) */
 .predict-lower-cols {
   display: grid;
@@ -1025,6 +1313,19 @@ code {
   overflow-y: auto;
   padding-right: 4px;
   align-content: start;
+}
+/* 角のRをなくす（直角タイル） */
+.predict-thumb-grid .thumb {
+  border-radius: 0;
+}
+/* 余白（レターボックス）をなくし、画像でタイルを埋める */
+.predict-thumb-grid .thumb .hover-img > img:not(.hover-img-preview) {
+  height: 150px;
+  object-fit: cover;
+  background: none;
+}
+.predict-thumb-grid .thumb figcaption {
+  padding: 5px 8px;
 }
 .predict-detail-meta {
   font-size: 0.78rem;
@@ -1301,6 +1602,12 @@ h1 {
 .hover-img-preview.lg {
   max-width: 720px;
   max-height: 520px;
+}
+/* 中央固定モード（画面中央に浮かせる） */
+.hover-img-preview.centered {
+  left: 50% !important;
+  top: 50% !important;
+  transform: translate(-50%, -50%);
 }
 .artifact .hover-img { display: block; }
 .artifact .hover-img > img:not(.hover-img-preview) {
@@ -1964,7 +2271,8 @@ pre {
   display: grid;
   grid-template-columns: minmax(0, 3fr) minmax(0, 7fr);
   gap: 16px;
-  align-items: start;
+  /* 左右を同じ高さに（右は内部スクロールで収める） */
+  align-items: stretch;
   margin: 8px 0 12px;
 }
 @media (max-width: 1000px) {
@@ -1978,7 +2286,22 @@ pre {
   border-radius: var(--radius-md);
   padding: 12px;
 }
-.model-detail-right h3:first-child {
+/* 右: 配布＋ONNX を1つのコンテナに収め、左と同じ高さで内部スクロール */
+.model-detail-right {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+}
+.model-dist-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.model-dist-body h3:first-child {
   margin-top: 0;
 }
 /* スペック（key/value）リスト */
@@ -2011,18 +2334,54 @@ pre {
   color: var(--muted);
   margin: 8px 0 4px;
 }
+/* 評価/分析の4指標を常に1行（値の上にラベル、狭い列でも収まる） */
 .model-metrics {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 16px;
-  align-items: baseline;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
   margin-bottom: 6px;
 }
+.model-metrics .summary-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  min-width: 0;
+}
 .model-metrics .summary-value {
-  font-size: 1.05rem;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
 }
 .model-metrics .summary-value.warn {
   color: #d97706;
+}
+.model-metrics .summary-label {
+  font-size: 0.66rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+/* 良→青 / 悪→赤 グラデーションの指標カード（色は inline style で付与） */
+.model-metrics .mm-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 6px;
+  text-align: center;
+  min-width: 0;
+}
+.model-metrics .mm-value {
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+.model-metrics .mm-label {
+  font-size: 0.66rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .model-detail-actions {
   display: flex;
@@ -2079,16 +2438,238 @@ pre {
 .sel-summary .summary-value.warn {
   color: #d97706;
 }
-/* 画像領域を主役に（サムネイルを大きく） */
+/* サマリー上部（ソース表示） */
+.sel-summary-head {
+  margin: 8px 0 6px;
+  font-size: 0.8rem;
+}
+.sel-counts {
+  margin-bottom: 8px;
+}
+/* 画像領域を主役に。推論テストと同じ cover・直角タイル */
 .sel-grid {
   grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
 }
-.sel-grid .thumb .hover-img > img:not(.hover-img-preview) {
-  height: 180px;
+.sel-grid .thumb {
+  position: relative;
+  border-radius: 0;
+  border-top-width: 3px;
 }
-/* 実際の向き（EXIF Orientation）に合わせて表示 */
-.sel-grid img {
+.sel-grid .thumb .hover-img > img:not(.hover-img-preview) {
+  height: 160px;
+  object-fit: cover;
+  background: none;
   image-orientation: from-image;
+}
+/* ステータスで上枠を色分け（included=緑 / excluded=赤 / review=橙） */
+.sel-card.status-included {
+  border-top-color: #34d399;
+}
+.sel-card.status-excluded {
+  border-top-color: #f87171;
+}
+.sel-card.status-review {
+  border-top-color: #fbbf24;
+}
+/* 左上のステータスバッジ */
+.sel-status-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 2;
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(16, 32, 51, 0.25);
+}
+.sel-status-badge.success {
+  background: #059669;
+}
+.sel-status-badge.error {
+  background: #dc2626;
+}
+.sel-status-badge.warn {
+  background: #d97706;
+}
+.sel-metrics {
+  font-size: 0.68rem;
+}
+.sel-warns {
+  font-size: 0.68rem;
+  margin-top: 2px;
+}
+/* 操作ボタン（コンパクトなツールバー） */
+.sel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+.sel-actions .sel-act {
+  padding: 2px 8px;
+  font-size: 0.76rem;
+}
+.sel-actions .sel-act.on {
+  outline: 2px solid rgba(255, 255, 255, 0.7);
+  outline-offset: -2px;
+}
+.sel-actions .sel-act-sep {
+  flex: 1 1 auto;
+}
+
+/* ===== 画像取り込み（他ページと統一：色付きコンテナ＋コンパクト表示） ===== */
+.import-methods {
+  display: grid;
+  /* フォルダ取り込みは項目が多いので広め(3)、個別アップロードは狭め(2)。高さは stretch で揃える */
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 12px;
+  margin: 8px 0 4px;
+  align-items: stretch;
+}
+@media (max-width: 640px) {
+  .import-methods {
+    grid-template-columns: 1fr;
+  }
+}
+.import-method {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+  padding: 10px 12px;
+}
+.import-method:nth-of-type(2) {
+  border-left-color: var(--cyan);
+}
+.import-method .ds-group-title {
+  margin-top: 0;
+}
+/* 補足は下端へ寄せて2カードの高さバランスを整える */
+.import-method .im-hint {
+  margin: 8px 0 0;
+  margin-top: auto;
+  padding-top: 6px;
+}
+/* 登録画像は推論テストと同じタイル表示（余白なし・直角・cover） */
+.im-grid .thumb {
+  border-radius: 0;
+}
+.im-grid .thumb .hover-img > img:not(.hover-img-preview) {
+  height: 150px;
+  object-fit: cover;
+  background: none;
+}
+.im-badge {
+  margin-left: 8px;
+  font-size: 0.64rem;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+}
+.im-exts {
+  gap: 4px 12px;
+  font-size: 0.82rem;
+}
+.im-picked {
+  align-items: center;
+  gap: 10px;
+}
+.import-result {
+  margin-top: 6px;
+  font-size: 0.8rem;
+}
+.im-registered-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 14px 0 6px;
+}
+.im-registered-head .chip-count {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ===== データセット作成: 作成フォーム(4) / ラベル品質チェック(6) ===== */
+.dataset-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 6fr);
+  gap: 16px;
+  /* 両カラムを同じ高さに（ラベル品質チェック側は内部スクロールで揺れない） */
+  align-items: stretch;
+  margin: 12px 0;
+}
+.dataset-cols > .card {
+  margin: 0;
+}
+@media (max-width: 1000px) {
+  .dataset-cols {
+    grid-template-columns: 1fr;
+  }
+}
+.ds-group-title {
+  margin: 8px 0 4px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--muted);
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.ds-group-title:first-of-type {
+  margin-top: 0;
+}
+.ds-ratio {
+  font-size: 0.78rem;
+  font-weight: 400;
+}
+.dataset-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px 10px;
+}
+.dataset-fields .field {
+  min-width: 0;
+}
+.dataset-fields .field-wide {
+  grid-column: 1 / -1;
+}
+.dataset-fields .field input,
+.dataset-fields .field select {
+  width: 100%;
+}
+/* チェック群は横並び折り返しで縦を圧縮 */
+.ds-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 6px 0;
+  font-size: 0.82rem;
+}
+.ds-run {
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+/* ラベル品質チェック: 高さは列に合わせ、結果は内部スクロール（外形は不変） */
+.lc-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.lc-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 4px;
 }
 
 /* ===== ラベル品質チェック（コンパクト・折りたたみ） ===== */
@@ -2125,8 +2706,8 @@ pre {
   border-bottom: 1px solid var(--border);
 }
 .lc-table {
-  max-height: 260px;
-  overflow: auto;
+  /* スクロールは外側の .lc-body に一元化（二重スクロールを避ける） */
+  overflow-x: auto;
   margin: 0;
 }
 .lc-table .table {

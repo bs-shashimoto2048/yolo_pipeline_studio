@@ -112,70 +112,91 @@ export default function ImagesPanel() {
     <section className="card">
       <h2>画像取り込み</h2>
 
-      <h3>フォルダ取り込み（推奨）</h3>
-      <p className="muted">
-        画像フォルダを選択すると、選択した拡張子の画像のみを一括取り込みします。
-        重複（同一ハッシュ）・破損・対象外拡張子は自動でスキップされ、ファイル名は
-        安全な名前に正規化されます。
-      </p>
-      <div className="row">
-        {ALL_EXTS.map((ext) => (
-          <label key={ext}>
-            <input type="checkbox" checked={exts.has(ext)} onChange={() => toggleExt(ext)} /> {ext}
-          </label>
-        ))}
-        <label>
-          <input type="checkbox" checked={includeSub} onChange={(e) => setIncludeSub(e.target.checked)} /> サブフォルダを含める
-        </label>
-      </div>
-      <div className="row">
-        <input
-          ref={folderRef}
-          type="file"
-          multiple
-          onChange={onPickFolder}
-          {...({ webkitdirectory: "true", directory: "true" } as Record<string, string>)}
-        />
-      </div>
-      {picked.length > 0 && (
-        <div className="row">
-          <span>
-            対象 <strong>{target.length}</strong> 件 / 除外 <strong>{excluded}</strong> 件
-            （選択 {picked.length} 件中）
-          </span>
-          <button onClick={runImport} disabled={busy || target.length === 0}>
-            {busy ? "取り込み中…" : "取り込み実行"}
-          </button>
+      {/* 取り込み方法を2つのコンテナに分けて表示 */}
+      <div className="import-methods">
+        <div className="import-method">
+          <div className="ds-group-title">
+            フォルダ取り込み<span className="im-badge">推奨</span>
+          </div>
+          <p className="muted" style={{ fontSize: "0.78rem", margin: "0 0 8px" }}>
+            フォルダを選ぶと、指定拡張子の画像のみ一括取り込み。重複・破損・対象外は自動スキップし、
+            ファイル名は安全な名前に正規化されます。
+          </p>
+          <div className="row im-exts">
+            {ALL_EXTS.map((ext) => (
+              <label key={ext}>
+                <input type="checkbox" checked={exts.has(ext)} onChange={() => toggleExt(ext)} /> {ext}
+              </label>
+            ))}
+            <label>
+              <input type="checkbox" checked={includeSub} onChange={(e) => setIncludeSub(e.target.checked)} /> サブフォルダを含める
+            </label>
+          </div>
+          <div className="row">
+            <input
+              ref={folderRef}
+              type="file"
+              multiple
+              onChange={onPickFolder}
+              {...({ webkitdirectory: "true", directory: "true" } as Record<string, string>)}
+            />
+          </div>
+          {picked.length > 0 && (
+            <div className="row im-picked">
+              <span className="muted" style={{ fontSize: "0.8rem" }}>
+                対象 <strong>{target.length}</strong> / 除外 <strong>{excluded}</strong>（選択 {picked.length}）
+              </span>
+              <button onClick={runImport} disabled={busy || target.length === 0}>
+                {busy ? "取り込み中…" : "取り込み実行"}
+              </button>
+            </div>
+          )}
+          {folderResult && (
+            <div className="import-result">
+              <span className="success">取り込み {folderResult.imported_count} 件</span>
+              <span className="muted">
+                {" "}／ スキップ {folderResult.skipped_count}（重複 {folderResult.duplicate_count} / 破損{" "}
+                {folderResult.broken_count} / 対象外 {folderResult.unsupported_count}）
+              </span>
+            </div>
+          )}
         </div>
-      )}
-      {folderResult && (
-        <div className="muted">
-          取り込み {folderResult.imported_count} 件 / スキップ {folderResult.skipped_count} 件
-          （重複 {folderResult.duplicate_count} / 破損 {folderResult.broken_count} / 対象外 {folderResult.unsupported_count}）
-        </div>
-      )}
 
-      <h3>個別アップロード</h3>
-      <div className="row">
-        <input
-          ref={fileRef}
-          type="file"
-          accept=".jpg,.jpeg,.png,.bmp,.webp"
-          multiple
-          onChange={onUpload}
-          disabled={busy}
-        />
-        {uploadResult && (
-          <span className="muted">
-            追加 {uploadResult.added} 件 / スキップ {uploadResult.skipped} 件
-          </span>
-        )}
+        <div className="import-method">
+          <div className="ds-group-title">個別アップロード</div>
+          <p className="muted" style={{ fontSize: "0.78rem", margin: "0 0 8px" }}>
+            少数の画像を直接選んで追加します（jpg / jpeg / png / bmp / webp）。
+            重複・破損は自動スキップされ、下の登録画像に反映されます。
+          </p>
+          <div className="row">
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".jpg,.jpeg,.png,.bmp,.webp"
+              multiple
+              onChange={onUpload}
+              disabled={busy}
+            />
+          </div>
+          <p className="muted im-hint" style={{ fontSize: "0.76rem" }}>
+            大量の画像はフォルダ取り込みの方が高速です。
+          </p>
+          {uploadResult && (
+            <div className="import-result">
+              <span className="success">追加 {uploadResult.added} 件</span>
+              <span className="muted"> ／ スキップ {uploadResult.skipped} 件</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {error && <div className="error">{error}</div>}
 
-      <h3>登録画像（{images.length}）</h3>
-      <div className="thumb-grid">
+      <div className="im-registered-head">
+        <div className="ds-group-title" style={{ margin: 0 }}>登録画像</div>
+        <span className="chip-count">{images.length} 枚</span>
+      </div>
+      <div className="thumb-grid im-grid">
         {images.map((img) => (
           <figure key={img.filename} className="thumb">
             <HoverImagePreview

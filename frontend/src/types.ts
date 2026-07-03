@@ -552,6 +552,8 @@ export interface PredictJobInfo {
   message: string | null;
   image_count: number | null;
   detection_count: number | null;
+  total_count: number | null;
+  processed_count: number | null;
   prediction_path: string | null;
   results_json_path: string | null;
 }

@@ -188,75 +188,100 @@ export default function ExperimentsPage() {
 
       {detail && (
         <section className="card">
-          <h2>実験詳細: {detail.experiment_id}</h2>
-          <div className="row">
-            <button onClick={() => navigate(`/p/${name}/eval?job=${detail.experiment_id}`)}>
-              評価画面へ
-            </button>
-            <button onClick={() => navigate(`/p/${name}/infer?train_job=${detail.experiment_id}`)}>
-              推論画面へ
-            </button>
+          <div className="exp-detail-head">
+            <h2>実験詳細: {detail.experiment_id}</h2>
+            <div className="row">
+              <button className="secondary" onClick={() => navigate(`/p/${name}/eval?job=${detail.experiment_id}`)}>
+                評価画面へ
+              </button>
+              <button className="secondary" onClick={() => navigate(`/p/${name}/infer?train_job=${detail.experiment_id}`)}>
+                推論画面へ
+              </button>
+            </div>
           </div>
 
-          <h3>学習条件</h3>
-          <ul className="compact">
-            <li>status: {detail.train_job?.status ?? "-"} / model: {detail.train_job?.model ?? "-"}</li>
-            <li>epochs: {detail.train_job?.epochs ?? "-"} / imgsz: {detail.train_job?.imgsz ?? "-"} / batch: {detail.train_job?.batch ?? "-"} / device: {detail.train_job?.device ?? "-"}</li>
-            <li>seed: {detail.train_job?.seed ?? "-"} / patience: {detail.train_job?.patience ?? "-"}</li>
-          </ul>
+          {/* 学習条件 / データセット / 評価 を全幅タイルで敷き詰める */}
+          <div className="exp-specs">
+            <section>
+              <div className="spec-section-title">学習条件</div>
+              <div className="kv-grid">
+                <div className="kv"><span className="k">status</span><span className={"v " + (detail.train_job?.status === "completed" ? "success" : detail.train_job?.status === "failed" ? "error" : "")}>{detail.train_job?.status ?? "-"}</span></div>
+                <div className="kv"><span className="k">model</span><span className="v">{detail.train_job?.model ?? "-"}</span></div>
+                <div className="kv"><span className="k">epochs</span><span className="v">{detail.train_job?.epochs ?? "-"}</span></div>
+                <div className="kv"><span className="k">imgsz</span><span className="v">{detail.train_job?.imgsz ?? "-"}</span></div>
+                <div className="kv"><span className="k">batch</span><span className="v">{detail.train_job?.batch ?? "-"}</span></div>
+                <div className="kv"><span className="k">device</span><span className="v">{detail.train_job?.device ?? "-"}</span></div>
+                <div className="kv"><span className="k">seed</span><span className="v">{detail.train_job?.seed ?? "-"}</span></div>
+                <div className="kv"><span className="k">patience</span><span className="v">{detail.train_job?.patience ?? "-"}</span></div>
+              </div>
+            </section>
 
-          <h3>データセット</h3>
-          {detail.dataset ? (
-            <ul className="compact">
-              <li>{detail.dataset.dataset_name ?? "-"}: train {detail.dataset.train_image_count ?? "-"} / val {detail.dataset.val_image_count ?? "-"} / test {detail.dataset.test_image_count ?? "-"}</li>
-              <li>class_count: {detail.dataset.class_count ?? "-"} / ratios: {num(detail.dataset.train_ratio, 2)}/{num(detail.dataset.val_ratio, 2)}/{num(detail.dataset.test_ratio, 2)}</li>
-            </ul>
-          ) : (
-            <p className="muted">データセット情報なし</p>
-          )}
+            <section>
+              <div className="spec-section-title">データセット</div>
+              {detail.dataset ? (
+                <div className="kv-grid">
+                  <div className="kv"><span className="k">name</span><span className="v">{detail.dataset.dataset_name ?? "-"}</span></div>
+                  <div className="kv"><span className="k">train</span><span className="v">{detail.dataset.train_image_count ?? "-"} 枚</span></div>
+                  <div className="kv"><span className="k">val</span><span className="v">{detail.dataset.val_image_count ?? "-"} 枚</span></div>
+                  <div className="kv"><span className="k">test</span><span className="v">{detail.dataset.test_image_count ?? "-"} 枚</span></div>
+                  <div className="kv"><span className="k">class</span><span className="v">{detail.dataset.class_count ?? "-"}</span></div>
+                  <div className="kv"><span className="k">ratios (t/v/te)</span><span className="v">{num(detail.dataset.train_ratio, 2)} / {num(detail.dataset.val_ratio, 2)} / {num(detail.dataset.test_ratio, 2)}</span></div>
+                </div>
+              ) : (
+                <p className="muted">データセット情報なし</p>
+              )}
+            </section>
 
-          <h3>評価</h3>
-          {detail.evaluation ? (
-            <ul className="compact">
-              <li>precision {num(detail.evaluation.precision)} / recall {num(detail.evaluation.recall)} / mAP50 {num(detail.evaluation.map50)} / mAP50-95 {num(detail.evaluation.map50_95)}</li>
-              <li>best.pt {detail.evaluation.has_best_model ? "あり" : "なし"} / last.pt {detail.evaluation.has_last_model ? "あり" : "なし"} / results.csv {detail.evaluation.has_results_csv ? "あり" : "なし"}</li>
-            </ul>
-          ) : (
-            <p className="muted">評価情報なし</p>
-          )}
+            <section>
+              <div className="spec-section-title">評価</div>
+              {detail.evaluation ? (
+                <div className="kv-grid">
+                  <div className="kv"><span className="k">precision</span><span className="v">{num(detail.evaluation.precision)}</span></div>
+                  <div className="kv"><span className="k">recall</span><span className="v">{num(detail.evaluation.recall)}</span></div>
+                  <div className="kv"><span className="k">mAP50</span><span className="v">{num(detail.evaluation.map50)}</span></div>
+                  <div className="kv"><span className="k">mAP50-95</span><span className="v">{num(detail.evaluation.map50_95)}</span></div>
+                  <div className="kv kv-wide"><span className="k">weights</span><span className="v">best {detail.evaluation.has_best_model ? "○" : "×"} / last {detail.evaluation.has_last_model ? "○" : "×"} / csv {detail.evaluation.has_results_csv ? "○" : "×"}</span></div>
+                </div>
+              ) : (
+                <p className="muted">評価情報なし</p>
+              )}
+            </section>
+          </div>
 
-          <h3>推論・誤検出分析（{detail.predictions.length}）</h3>
+          <div className="spec-section-title">推論・誤検出分析（{detail.predictions.length}）</div>
           {detail.predictions.length === 0 ? (
             <p className="muted">この実験を使った推論ジョブはありません。</p>
           ) : (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>predict_job</th><th>status</th><th>画像</th><th>検出</th>
-                  <th>TP</th><th>FP</th><th>FN</th><th>mismatch</th><th>F1</th><th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {detail.predictions.map((p) => (
-                  <tr key={p.predict_job_id}>
-                    <td>{p.predict_job_id}</td>
-                    <td>{p.status ?? "-"}</td>
-                    <td>{p.image_count ?? "-"}</td>
-                    <td>{p.detection_count ?? "-"}</td>
-                    <td>{p.analysis?.tp_count ?? "-"}</td>
-                    <td>{p.analysis?.fp_count ?? "-"}</td>
-                    <td>{p.analysis?.fn_count ?? "-"}</td>
-                    <td>{p.analysis?.class_mismatch_count ?? "-"}</td>
-                    <td>{p.analysis ? num(p.analysis.f1) : "-"}</td>
-                    <td>
-                      <button onClick={() => navigate(`/p/${name}/analysis?job=${p.predict_job_id}`)}>
-                        分析へ
-                      </button>
-                    </td>
+            <div className="table-scroll">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>predict_job</th><th>status</th><th>画像</th><th>検出</th>
+                    <th>TP</th><th>FP</th><th>FN</th><th>mismatch</th><th>F1</th><th></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {detail.predictions.map((p) => (
+                    <tr key={p.predict_job_id}>
+                      <td>{p.predict_job_id}</td>
+                      <td className={p.status === "completed" ? "success" : p.status === "failed" ? "error" : "warn"}>{p.status ?? "-"}</td>
+                      <td>{p.image_count ?? "-"}</td>
+                      <td>{p.detection_count ?? "-"}</td>
+                      <td>{p.analysis?.tp_count ?? "-"}</td>
+                      <td className={p.analysis && p.analysis.fp_count > 0 ? "warn" : ""}>{p.analysis?.fp_count ?? "-"}</td>
+                      <td className={p.analysis && p.analysis.fn_count > 0 ? "warn" : ""}>{p.analysis?.fn_count ?? "-"}</td>
+                      <td className={p.analysis && p.analysis.class_mismatch_count > 0 ? "warn" : ""}>{p.analysis?.class_mismatch_count ?? "-"}</td>
+                      <td>{p.analysis ? num(p.analysis.f1) : "-"}</td>
+                      <td>
+                        <button onClick={() => navigate(`/p/${name}/analysis?job=${p.predict_job_id}`)}>
+                          分析へ
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
       )}

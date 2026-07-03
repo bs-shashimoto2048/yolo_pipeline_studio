@@ -69,6 +69,21 @@ function sizeMB(bytes: number | null): string {
   return (bytes / 1024 / 1024).toFixed(2) + " MB";
 }
 
+// 良い値(1.0)=青 → 悪い値(0)=赤 のグラデーションで色を返す（緑を経由）。
+// g は 0〜1 に正規化した「良さ」。null は中立（グレー）。
+function goodnessBg(g: number | null): { background: string; borderColor: string } {
+  if (g === null || Number.isNaN(g)) return { background: "var(--surface-soft)", borderColor: "var(--border)" };
+  const c = Math.max(0, Math.min(1, g));
+  const hue = 8 + c * (212 - 8); // 8=赤 .. 120=緑 .. 212=青
+  return { background: `hsl(${hue} 85% 95%)`, borderColor: `hsl(${hue} 65% 82%)` };
+}
+function goodnessFg(g: number | null): string {
+  if (g === null || Number.isNaN(g)) return "var(--text)";
+  const c = Math.max(0, Math.min(1, g));
+  const hue = 8 + c * (212 - 8);
+  return `hsl(${hue} 70% 34%)`;
+}
+
 export default function ModelsPage() {
   const { name = "" } = useParams();
   const navigate = useNavigate();
@@ -345,36 +360,43 @@ export default function ModelsPage() {
               <div className="spec-section-title">評価</div>
               <div className="model-metrics">
                 {[
-                  { label: "precision", value: num(openModel.precision) },
-                  { label: "recall", value: num(openModel.recall) },
-                  { label: "mAP50", value: num(openModel.map50) },
-                  { label: "mAP50-95", value: num(openModel.map50_95) },
+                  { label: "precision", v: openModel.precision },
+                  { label: "recall", v: openModel.recall },
+                  { label: "mAP50", v: openModel.map50 },
+                  { label: "mAP50-95", v: openModel.map50_95 },
                 ].map((c) => (
-                  <span key={c.label} className="summary-stat">
-                    <span className="summary-value">{c.value}</span>
-                    <span className="summary-label">{c.label}</span>
-                  </span>
+                  <div key={c.label} className="mm-card" style={goodnessBg(c.v)}>
+                    <div className="mm-value" style={{ color: goodnessFg(c.v) }}>{num(c.v)}</div>
+                    <div className="mm-label">{c.label}</div>
+                  </div>
                 ))}
               </div>
 
-              {openModel.latest_analysis && (
-                <>
-                  <div className="spec-section-title">最新分析</div>
-                  <div className="model-metrics">
-                    {[
-                      { label: "F1", value: num(openModel.latest_analysis.f1), warn: false },
-                      { label: "TP", value: String(openModel.latest_analysis.tp_count), warn: false },
-                      { label: "FP", value: String(openModel.latest_analysis.fp_count), warn: openModel.latest_analysis.fp_count > 0 },
-                      { label: "FN", value: String(openModel.latest_analysis.fn_count), warn: openModel.latest_analysis.fn_count > 0 },
-                    ].map((c) => (
-                      <span key={c.label} className="summary-stat">
-                        <span className={"summary-value" + (c.warn ? " warn" : "")}>{c.value}</span>
-                        <span className="summary-label">{c.label}</span>
-                      </span>
-                    ))}
-                  </div>
-                </>
-              )}
+              {openModel.latest_analysis && (() => {
+                const a = openModel.latest_analysis;
+                const denomP = a.tp_count + a.fp_count; // precision 相当
+                const denomR = a.tp_count + a.fn_count; // recall 相当
+                const total = a.tp_count + a.fp_count + a.fn_count + a.class_mismatch_count;
+                const cards = [
+                  { label: "F1", disp: num(a.f1), g: a.f1 },
+                  { label: "TP", disp: String(a.tp_count), g: total > 0 ? a.tp_count / total : null },
+                  { label: "FP", disp: String(a.fp_count), g: denomP > 0 ? a.tp_count / denomP : a.fp_count === 0 ? 1 : 0 },
+                  { label: "FN", disp: String(a.fn_count), g: denomR > 0 ? a.tp_count / denomR : a.fn_count === 0 ? 1 : 0 },
+                ];
+                return (
+                  <>
+                    <div className="spec-section-title">最新分析</div>
+                    <div className="model-metrics">
+                      {cards.map((c) => (
+                        <div key={c.label} className="mm-card" style={goodnessBg(c.g)}>
+                          <div className="mm-value" style={{ color: goodnessFg(c.g) }}>{c.disp}</div>
+                          <div className="mm-label">{c.label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                );
+              })()}
 
               <div className="model-detail-actions">
                 <input
@@ -395,8 +417,9 @@ export default function ModelsPage() {
               </div>
             </div>
 
-            {/* 右: モデル配布 + ONNXエクスポート */}
+            {/* 右: モデル配布 + ONNXエクスポート（モデル詳細と同じ高さのコンテナに収め、内部スクロール） */}
             <div className="model-detail-right">
+              <div className="model-dist-body">
               <h3>モデル配布</h3>
               <p className="muted" style={{ fontSize: "0.8rem" }}>
                 重み(.pt)単体、または再利用に必要な情報（クラス定義・前処理・推論条件・学習条件・
@@ -539,6 +562,7 @@ export default function ModelsPage() {
                 </button>
               </div>
               {onnxError && <div className="error">{onnxError}</div>}
+              </div>
             </div>
           </div>
 

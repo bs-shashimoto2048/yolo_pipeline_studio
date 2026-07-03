@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
+import HoverImagePreview from "../components/HoverImagePreview";
 import type {
   CameraInfo,
   ImageInfo,
@@ -37,6 +38,14 @@ function stemOf(filename: string): string {
   return filename.replace(/\.[^./\\]+$/, "");
 }
 
+// ログ1行のレベル分類（色分け用）
+function logLineClass(line: string): string {
+  if (/\[ERROR\]|Traceback|Exception|Error:/.test(line)) return "log-error";
+  if (/\[WARN(ING)?\]/.test(line)) return "log-warning";
+  if (/\[INFO\]/.test(line)) return "log-info";
+  return "";
+}
+
 export default function PredictPage() {
   const { name = "" } = useParams();
   const [searchParams] = useSearchParams();
@@ -65,6 +74,14 @@ export default function PredictPage() {
   const [preprocessMode, setPreprocessMode] = useState("none");
   const [preInfo, setPreInfo] = useState<PreprocessInfoResponse | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  // ジョブ詳細カードの高さをブラウザ下限まで動的に制限（はみ出し防止）
+  const detailRef = useRef<HTMLElement>(null);
+  const [detailMaxH, setDetailMaxH] = useState<number | undefined>(undefined);
+  const logBoxRef = useRef<HTMLDivElement>(null);
+
+  function copyLog() {
+    navigator.clipboard?.writeText(log).catch(() => {});
+  }
 
   // 推論モード（画像 / 映像）
   const [mode, setMode] = useState<"image" | "video">("image");
@@ -158,6 +175,31 @@ export default function PredictPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, name, reloadKey]);
+
+  // 実行中は最新ログへ自動スクロール
+  useEffect(() => {
+    const box = logBoxRef.current;
+    if (box && (detail?.status === "running" || detail?.status === "queued")) {
+      box.scrollTop = box.scrollHeight;
+    }
+  }, [log, detail?.status]);
+
+  // 詳細カードの高さを「現在位置〜ブラウザ下限」に合わせて調整（スクロール/リサイズ追従）
+  useEffect(() => {
+    const el = detailRef.current;
+    if (!el) return;
+    const update = () => {
+      const top = el.getBoundingClientRect().top;
+      setDetailMaxH(Math.max(240, Math.floor(window.innerHeight - top - 16)));
+    };
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
+  }, [detail, results]);
 
   function toggleImage(stem: string) {
     setChosen((prev) => {
@@ -402,9 +444,18 @@ export default function PredictPage() {
                       className={"thumb selectable" + (on ? " on" : "")}
                       onClick={() => toggleImage(stem)}
                     >
-                      <img src={api.thumbnailUrl(name, img.filename)} alt={img.filename} loading="lazy" />
+                      <span className="sel-check" aria-hidden>
+                        <svg viewBox="0 0 24 24" width="13" height="13">
+                          <path d="M5 12l4.5 4.5L19 7" fill="none" stroke="currentColor" strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </span>
+                      <HoverImagePreview
+                        thumbSrc={api.thumbnailUrl(name, img.filename)}
+                        fullSrc={api.imageUrl(name, img.filename)}
+                        alt={img.filename}
+                      />
                       <figcaption>
-                        <input type="checkbox" checked={on} readOnly /> {img.filename}
+                        <div className="thumb-name" title={img.filename}>{img.filename}</div>
                       </figcaption>
                     </figure>
                   );
@@ -467,10 +518,22 @@ export default function PredictPage() {
       </section>
 
       {detail && (
-        <section className="card">
-          <h2>
-            ジョブ詳細: {detail.predict_job_id}{" "}
-            <span className={statusClass(detail.status)}>● {detail.status}</span>
+        <section
+          className="card predict-detail-card"
+          ref={detailRef}
+          style={{ maxHeight: detailMaxH, overflowY: "auto" }}
+        >
+          <h2 className="predict-detail-h2">
+            <span>
+              ジョブ詳細: {detail.predict_job_id}{" "}
+              <span className={statusClass(detail.status)}>● {detail.status}</span>
+            </span>
+            {(detail.status === "running" || detail.status === "queued") && (
+              <span className="predict-progress" aria-label="推論の進捗">
+                <span className="predict-progress-text">推論中…</span>
+                <span className="predict-progress-bar" />
+              </span>
+            )}
           </h2>
           <p className="muted predict-detail-meta">
             {detail.message ?? "-"} ／ started {detail.started_at ?? "-"} → finished{" "}
@@ -541,9 +604,26 @@ export default function PredictPage() {
             </>
           )}
 
-          <details>
-            <summary className="muted">ログ（predict.log）</summary>
-            <textarea readOnly className="train-log" value={log} />
+          <details className="predict-log" open>
+            <summary className="predict-log-summary">
+              ログ（predict.log）
+            </summary>
+            <div className="predict-log-toolbar">
+              <span className="muted">{log ? log.split("\n").length : 0} 行</span>
+              <span style={{ flex: 1 }} />
+              <button type="button" className="secondary" onClick={copyLog} disabled={!log}>
+                コピー
+              </button>
+            </div>
+            <div className="train-log-box" ref={logBoxRef}>
+              {log
+                ? log.split("\n").map((line, i) => (
+                    <div key={i} className={"log-line " + logLineClass(line)}>
+                      {line || " "}
+                    </div>
+                  ))
+                : <div className="muted">ログはまだありません。</div>}
+            </div>
           </details>
         </section>
       )}

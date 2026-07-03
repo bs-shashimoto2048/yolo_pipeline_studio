@@ -53,7 +53,7 @@ export default function LabelCheckPanel() {
   const hasError = (result?.summary.error_count ?? 0) > 0;
 
   return (
-    <section className="card">
+    <section className="card lc-panel">
       <h2>ラベル品質チェック（作成前チェック）</h2>
       <p className="muted" style={{ fontSize: "0.82rem" }}>
         データセット作成前にラベルの整合性を確認します。<strong>error</strong> があると
@@ -106,7 +106,9 @@ export default function LabelCheckPanel() {
             ))}
           </div>
 
-          {/* 各結果は折りたたみ可能・高さ上限付きスクロールでコンパクトに */}
+          {/* 結果はこの領域内でスクロール（外側の高さは固定＝画面が揺れない） */}
+          <div className="lc-body">
+          {/* 各結果は折りたたみ可能 */}
           <details className="lc-details" open>
             <summary>クラス別統計（{result.class_stats.length}）</summary>
             <div className="table-scroll lc-table">
@@ -189,6 +191,7 @@ export default function LabelCheckPanel() {
               </table>
             </div>
           </details>
+          </div>
         </>
       )}
     </section>

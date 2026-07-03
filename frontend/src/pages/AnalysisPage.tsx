@@ -162,25 +162,39 @@ export default function AnalysisPage() {
           <div className="analysis-summary-cols">
             <section className="card">
               <h2 className="analysis-h2">サマリー</h2>
-              <div className="analysis-stats">
+
+              {/* 主要指標（大きく強調） */}
+              <div className="analysis-kpis">
                 {[
-                  { label: "画像数", value: data.summary.image_count },
-                  { label: "GT数", value: data.summary.ground_truth_count },
-                  { label: "pred数", value: data.summary.prediction_count },
-                  { label: "TP", value: data.summary.tp_count },
-                  { label: "FP", value: data.summary.fp_count, warn: true },
-                  { label: "FN", value: data.summary.fn_count, warn: true },
-                  { label: "mismatch", value: data.summary.class_mismatch_count, warn: true },
                   { label: "precision", value: fmt(data.summary.precision) },
                   { label: "recall", value: fmt(data.summary.recall) },
                   { label: "F1", value: fmt(data.summary.f1) },
                 ].map((c) => (
-                  <span key={c.label} className="summary-stat">
-                    <span className={"summary-value" + (c.warn && Number(c.value) > 0 ? " warn" : "")}>
-                      {c.value}
-                    </span>
-                    <span className="summary-label">{c.label}</span>
-                  </span>
+                  <div key={c.label} className="analysis-kpi">
+                    <div className="analysis-kpi-value">{c.value}</div>
+                    <div className="analysis-kpi-label">{c.label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* 件数の内訳（TP=良 / FP・FN・mismatch=要確認 は色分け） */}
+              <div className="analysis-counts">
+                {[
+                  { label: "画像", value: data.summary.image_count, kind: "" },
+                  { label: "GT", value: data.summary.ground_truth_count, kind: "" },
+                  { label: "予測", value: data.summary.prediction_count, kind: "" },
+                  { label: "TP", value: data.summary.tp_count, kind: "good" },
+                  { label: "FP", value: data.summary.fp_count, kind: "warn" },
+                  { label: "FN", value: data.summary.fn_count, kind: "warn" },
+                  { label: "mismatch", value: data.summary.class_mismatch_count, kind: "warn" },
+                ].map((c) => (
+                  <div
+                    key={c.label}
+                    className={"analysis-count " + (c.kind === "warn" && c.value > 0 ? "warn" : c.kind)}
+                  >
+                    <span className="analysis-count-value">{c.value}</span>
+                    <span className="analysis-count-label">{c.label}</span>
+                  </div>
                 ))}
               </div>
             </section>

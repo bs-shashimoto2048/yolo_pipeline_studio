@@ -54,6 +54,8 @@ class PredictJobInfo(BaseModel):
     message: str | None = None
     image_count: int | None = None
     detection_count: int | None = None
+    total_count: int | None = None
+    processed_count: int | None = None
     prediction_path: str | None = None
     results_json_path: str | None = None
     preprocess_mode: str | None = None

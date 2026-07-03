@@ -217,6 +217,8 @@ def start_job(name: str, req: PredictJobCreate) -> PredictJobStartResponse:
         "message": "queued",
         "image_count": len(resolved),
         "detection_count": None,
+        "total_count": len(resolved),
+        "processed_count": 0,
         "prediction_path": rel_pred,
         "results_json_path": f"{rel_pred}/results.json",
         "preprocess_mode": req.preprocess_mode,

@@ -111,8 +111,12 @@ def main() -> int:
     out_images.mkdir(parents=True, exist_ok=True)
     results_json = predict_dir / "results.json"
 
+    # 入力枚数（進捗の分母）
+    total = len(_input_images(inputs_dir))
+
     # 1) running
-    _update_job(job_json, status="running", started_at=_now(), message="predicting")
+    _update_job(job_json, status="running", started_at=_now(), message="predicting",
+                total_count=total, processed_count=0)
     print(f"[INFO] 推論開始 weight={weight.name} conf={args.conf} iou={args.iou} "
           f"imgsz={args.imgsz} device={args.device}")
 
@@ -127,7 +131,7 @@ def main() -> int:
     if os.environ.get("YTS_PREDICT_DRY_RUN"):
         print("[INFO] DRY RUN: Ultralytics を読み込まず推論をスキップします。")
         results = []
-        for img in _input_images(inputs_dir):
+        for i, img in enumerate(_input_images(inputs_dir), 1):
             shutil.copy2(img, out_images / img.name)
             results.append({
                 "image_id": img.stem,
@@ -135,10 +139,11 @@ def main() -> int:
                 "result_image_path": _rel_posix(out_images / img.name, project_dir),
                 "detections": [],
             })
+            _update_job(job_json, processed_count=i)
         _write_results(job_json, results_json, project_dir, results, 0)
         _update_job(job_json, status="completed", finished_at=_now(), return_code=0,
                     message="dry run completed", image_count=len(results),
-                    detection_count=0)
+                    detection_count=0, processed_count=len(results))
         return 0
 
     # 3) Ultralytics 読み込み
@@ -167,6 +172,7 @@ def main() -> int:
             project=str(predict_dir),
             name="outputs",
             exist_ok=True,
+            stream=True,  # 1枚ずつ処理を進め、進捗を逐次更新できるようにする
         )
         if args.device and args.device != "auto":
             kwargs["device"] = args.device
@@ -175,7 +181,7 @@ def main() -> int:
 
         results = []
         detection_count = 0
-        for r in preds:
+        for idx, r in enumerate(preds, 1):
             src_path = Path(r.path)
             image_name = src_path.name
             save_dir = Path(r.save_dir)
@@ -209,11 +215,13 @@ def main() -> int:
                 "result_image_path": _rel_posix(out_images / image_name, project_dir),
                 "detections": detections,
             })
+            # 進捗を逐次更新（フロントのプログレスバー用）
+            _update_job(job_json, processed_count=idx)
 
         _write_results(job_json, results_json, project_dir, results, detection_count)
         _update_job(job_json, status="completed", finished_at=_now(), return_code=0,
                     message="completed", image_count=len(results),
-                    detection_count=detection_count)
+                    detection_count=detection_count, processed_count=len(results))
         print(f"[INFO] 推論完了: 画像 {len(results)} 件 / 検出 {detection_count} 件")
         return 0
     except Exception as e:  # noqa: BLE001

@@ -142,24 +142,26 @@ export default function SelectionPage() {
 
       {summary && (
         <>
-          {/* サマリーを1行インラインでコンパクトに */}
-          <div className="sel-summary">
-            <span className="muted sel-source">ソース: {resolvedSource}</span>
+          {/* サマリー: 色分けカウント（included=良 / excluded・review・警告=要確認） */}
+          <div className="sel-summary-head">
+            <span className="muted">ソース: {resolvedSource}</span>
+          </div>
+          <div className="analysis-counts sel-counts">
             {[
-              { label: "総数", value: summary.image_count },
-              { label: "included", value: summary.included_count },
-              { label: "excluded", value: summary.excluded_count, warn: true },
-              { label: "review", value: summary.review_count, warn: true },
-              { label: "duplicate", value: summary.duplicate_count, warn: true },
-              { label: "small", value: summary.small_count, warn: true },
-              { label: "dark", value: summary.dark_count, warn: true },
-              { label: "bright", value: summary.bright_count, warn: true },
-              { label: "blur", value: summary.blur_count, warn: true },
+              { label: "総数", value: summary.image_count, kind: "" },
+              { label: "included", value: summary.included_count, kind: "good" },
+              { label: "excluded", value: summary.excluded_count, kind: "warn" },
+              { label: "review", value: summary.review_count, kind: "warn" },
+              { label: "duplicate", value: summary.duplicate_count, kind: "warn" },
+              { label: "small", value: summary.small_count, kind: "warn" },
+              { label: "dark", value: summary.dark_count, kind: "warn" },
+              { label: "bright", value: summary.bright_count, kind: "warn" },
+              { label: "blur", value: summary.blur_count, kind: "warn" },
             ].map((c) => (
-              <span key={c.label} className="summary-stat">
-                <span className={"summary-value" + (c.warn && c.value > 0 ? " warn" : "")}>{c.value}</span>
-                <span className="summary-label">{c.label}</span>
-              </span>
+              <div key={c.label} className={"analysis-count " + (c.kind === "warn" && c.value > 0 ? "warn" : c.kind)}>
+                <span className="analysis-count-value">{c.value}</span>
+                <span className="analysis-count-label">{c.label}</span>
+              </div>
             ))}
           </div>
 
@@ -174,7 +176,10 @@ export default function SelectionPage() {
 
           <div className="thumb-grid sel-grid">
             {view.map((it) => (
-              <figure key={it.image_id} className="thumb">
+              <figure key={it.image_id} className={"thumb sel-card status-" + it.status}>
+                <span className={"sel-status-badge " + statusClass(it.status)}>
+                  {it.status === "included" ? "✓ 採用" : it.status === "excluded" ? "✕ 除外" : "△ 要確認"}
+                </span>
                 <HoverImagePreview
                   thumbSrc={`${api.thumbnailUrl(name, it.image_name, it.source)}&v=${bust}`}
                   fullSrc={`${api.imageUrl(name, it.image_name, it.source)}&v=${bust}`}
@@ -182,21 +187,29 @@ export default function SelectionPage() {
                 />
                 <figcaption>
                   <div className="thumb-name" title={it.image_name}>{it.image_name}</div>
-                  <div className={statusClass(it.status)}>● {it.status}</div>
-                  <div className="muted" style={{ fontSize: "0.7rem" }}>
-                    {it.width}×{it.height} / 輝度 {it.brightness_mean} / ブレ {it.blur_score}
+                  <div className="muted sel-metrics">
+                    {it.width}×{it.height} ・ 輝度 {it.brightness_mean} ・ ブレ {it.blur_score}
                   </div>
                   {it.warnings.length > 0 && (
-                    <div className="warn" style={{ fontSize: "0.7rem" }}>{it.warnings.join(", ")}</div>
+                    <div className="warn sel-warns">{it.warnings.join(", ")}</div>
                   )}
-                  <div className="row" style={{ gap: 4, margin: "4px 0" }}>
-                    <button style={{ padding: "2px 6px" }} onClick={() => setStatus(it, "included")}>採用</button>
-                    <button style={{ padding: "2px 6px" }} className="danger" onClick={() => setStatus(it, "excluded")}>除外</button>
-                  </div>
-                  <div className="row rotate-btns" style={{ gap: 4, margin: "4px 0" }}>
-                    <button className="secondary" onClick={() => rotate(it, 90)}>↺90°</button>
-                    <button className="secondary" onClick={() => rotate(it, -90)}>↻90°</button>
-                    <button className="secondary" onClick={() => rotate(it, 180)}>180°</button>
+                  <div className="sel-actions">
+                    <button
+                      className={"sel-act" + (it.status === "included" ? " on" : "")}
+                      onClick={() => setStatus(it, "included")}
+                    >
+                      採用
+                    </button>
+                    <button
+                      className={"sel-act danger" + (it.status === "excluded" ? " on" : "")}
+                      onClick={() => setStatus(it, "excluded")}
+                    >
+                      除外
+                    </button>
+                    <span className="sel-act-sep" />
+                    <button className="sel-act secondary" title="反時計90°" onClick={() => rotate(it, 90)}>↺</button>
+                    <button className="sel-act secondary" title="時計90°" onClick={() => rotate(it, -90)}>↻</button>
+                    <button className="sel-act secondary" title="180°" onClick={() => rotate(it, 180)}>180</button>
                   </div>
                 </figcaption>
               </figure>
