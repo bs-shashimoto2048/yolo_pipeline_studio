@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
+    host: true, // LAN上の他端末からもアクセスできるよう全インターフェースで待受
     proxy: {
       "/api": {
         target: "http://localhost:8000",
