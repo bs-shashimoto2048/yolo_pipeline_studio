@@ -78,7 +78,11 @@ def processed_preview_dir(name: str) -> Path:
 def images_dir_for_source(name: str, source: str) -> Path:
     """source(raw/processed/auto) に応じた画像ディレクトリを返す。
 
-    auto は processed/images が存在すれば processed、なければ raw。
+    auto は、processed/images に画像があり、かつその枚数が raw/images 以上の場合のみ
+    processed を使う。raw の方が多い場合は「前処理後にraw側だけ画像が追加され、
+    processedが古い/不完全」と判断して raw にフォールバックする（例: カメラ/URL撮影で
+    前処理を経ずに raw へ画像が追加され続けるケース）。単純な存在チェックだけだと、
+    そのような場合に新しい画像が auto から見えなくなってしまうため。
     """
     if source == "processed":
         return processed_images_dir(name)
@@ -86,9 +90,13 @@ def images_dir_for_source(name: str, source: str) -> Path:
         return raw_images_dir(name)
     # auto
     pdir = processed_images_dir(name)
-    if pdir.exists() and any(pdir.iterdir()):
-        return pdir
-    return raw_images_dir(name)
+    rdir = raw_images_dir(name)
+    if pdir.exists():
+        p_count = sum(1 for f in pdir.iterdir() if f.is_file())
+        r_count = sum(1 for f in rdir.iterdir() if f.is_file()) if rdir.exists() else 0
+        if p_count > 0 and p_count >= r_count:
+            return pdir
+    return rdir
 
 
 def labels_dir(name: str) -> Path:

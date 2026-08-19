@@ -33,12 +33,12 @@ def check(label: str, cond: bool) -> None:
         raise SystemExit(1)
 
 
-def make_image(stem: str, w: int, h: int, fmt: str = "PNG") -> None:
+def make_image(stem: str, w: int, h: int, fmt: str = "PNG", proj: str = PROJ) -> None:
     d = sum(ord(c) for c in stem)
     buf = io.BytesIO()
     Image.new("RGB", (w, h), (d % 256, (d * 7) % 256, (d * 13) % 256)).save(buf, format=fmt)
     buf.seek(0)
-    client.post(f"/api/projects/{PROJ}/images",
+    client.post(f"/api/projects/{proj}/images",
                 files=[("files", (f"{stem}.{ 'png' if fmt=='PNG' else 'jpg'}", buf.getvalue(), "image/png"))])
 
 
@@ -48,6 +48,56 @@ def run(body: dict):
 
 def proc_dir() -> Path:
     return ROOT / PROJ / "processed" / "images"
+
+
+def test_auto_fallback_edge_cases() -> None:
+    """images_dir_for_source の auto 判定を、専用プロジェクトでケースごとに確認する。
+
+    メインのフロー（PROJ）は前処理を何度も実行して processed が育っていくため、
+    「processed 未作成」「processed が存在するが空」を独立に検証するには別プロジェクトを使う。
+    """
+    proj = "pre_proj_autofallback"
+    client.post("/api/projects", json={"name": proj})
+    client.put(f"/api/projects/{proj}/classes", json={"names": ["a"]})
+    make_image("a", 100, 100, proj=proj)
+    make_image("b", 100, 100, proj=proj)
+
+    # ケース1: processed/images 自体が存在しない → raw を選ぶ
+    r = client.get(f"/api/projects/{proj}/images", params={"source": "auto"})
+    names = sorted(i["filename"] for i in r.json()["images"])
+    check(
+        "auto: processed未作成 -> raw",
+        len(names) == 2 and all(n.endswith(".png") for n in names),
+    )
+
+    # ケース2: processed/images は存在するが空 → raw へフォールバック
+    proc_images = ROOT / proj / "processed" / "images"
+    proc_images.mkdir(parents=True, exist_ok=True)
+    r = client.get(f"/api/projects/{proj}/images", params={"source": "auto"})
+    names2 = sorted(i["filename"] for i in r.json()["images"])
+    check(
+        "auto: processed空(0枚) -> raw",
+        len(names2) == 2 and all(n.endswith(".png") for n in names2),
+    )
+
+    # ケース3: processed の枚数が raw 以上 → processed を選ぶ（既存processedプロジェクトの通常挙動）
+    for stem in ("a", "b"):
+        Image.new("RGB", (50, 50), (1, 2, 3)).save(proc_images / f"{stem}.jpg")
+    r = client.get(f"/api/projects/{proj}/images", params={"source": "auto"})
+    names3 = sorted(i["filename"] for i in r.json()["images"])
+    check(
+        "auto: processed>=raw(2枚) -> processed",
+        len(names3) == 2 and all(n.endswith(".jpg") for n in names3),
+    )
+
+    # ケース4: raw 側だけ画像が増え、processed(2枚) < raw(3枚) になった → raw へフォールバック
+    make_image("c", 100, 100, proj=proj)
+    r = client.get(f"/api/projects/{proj}/images", params={"source": "auto"})
+    names4 = sorted(i["filename"] for i in r.json()["images"])
+    check(
+        "auto: raw(3)>processed(2) -> raw",
+        len(names4) == 3 and all(n.endswith(".png") for n in names4),
+    )
 
 
 def main() -> None:
@@ -125,6 +175,14 @@ def main() -> None:
     rawnames = sorted(i["filename"] for i in r.json()["images"])
     check("raw -> png", all(n.endswith(".png") for n in rawnames))
 
+    # 前処理後に raw だけ新しい画像が追加された場合（カメラ/URL撮影等）、
+    # processed は古い/不完全になるため auto は raw にフォールバックするべき
+    # （raw の枚数が processed 以上になった時点で切り替わる）。
+    make_image("img_new", 300, 300, fmt="PNG")
+    r = client.get(f"/api/projects/{PROJ}/images", params={"source": "auto"})
+    autonames2 = sorted(i["filename"] for i in r.json()["images"])
+    check("auto falls back to raw when raw has more images", "img_new.png" in autonames2)
+
     # 既存ラベルがある状態で前処理 → warning
     (ROOT / PROJ / "annotations" / "labels").mkdir(parents=True, exist_ok=True)
     (ROOT / PROJ / "annotations" / "labels" / "img_a.txt").write_text("0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
@@ -138,6 +196,8 @@ def main() -> None:
     })
     check("dataset processed 201", r.status_code == 201)
     check("dataset used processed", r.json()["image_source"] == "processed")
+
+    test_auto_fallback_edge_cases()
 
     print("\nALL PREPROCESS SMOKE TESTS PASSED")
 
