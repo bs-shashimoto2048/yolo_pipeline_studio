@@ -12,6 +12,7 @@ import type {
 } from "../types";
 
 const DEVICES = ["auto", "cpu", "mps", "cuda"];
+const DEFAULT_JOB_NAME = "train_001";
 
 // タスク種別ごとのモデル候補（先頭が初期値）
 const MODEL_CANDIDATES: Record<ProjectTask, string[]> = {
@@ -42,7 +43,7 @@ export default function TrainPage() {
 
   // フォーム（初期値は task.md 準拠）
   const [datasetName, setDatasetName] = useState("");
-  const [jobName, setJobName] = useState("train_001");
+  const [jobName, setJobName] = useState(DEFAULT_JOB_NAME);
   const [projectTask, setProjectTask] = useState<ProjectTask>("detect");
   const [model, setModel] = useState("yolov8n.pt");
   const [epochs, setEpochs] = useState(50);
@@ -155,6 +156,11 @@ export default function TrainPage() {
       });
       await reloadJobs();
       setSelected(res.job_id);
+      // 学習開始成功後は「上書き」を必ず既定値へ戻す（前回のoverwrite状態が残ったまま
+      // 次回送信され、実行中の別ジョブを誤って上書きしてしまう事故を防ぐ）。
+      // job_name も前回値を残す合理的な理由がないため、初期値へ戻す。
+      setOverwrite(false);
+      setJobName(DEFAULT_JOB_NAME);
     } catch (e) {
       setError(String(e));
     } finally {

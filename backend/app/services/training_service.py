@@ -67,10 +67,30 @@ def _require_project(name: str) -> None:
 def _safe_rmtree(path: Path) -> None:
     """既存ジョブディレクトリを削除する。
 
-    Windowsでは、直前のワーカープロセスが train.log 等のハンドルを解放する
-    までの短時間 PermissionError(WinError 32) になることがあるため、数回リトライ
-    する。それでも消えない場合（実行中の可能性が高い）は TrainConflictError。
+    「一部のファイルだけ消えて中途半端な状態になる」ことを避けるため、まず
+    同じファイルシステム上のゴミ箱名へリネームしてから削除する。リネームは
+    単一のメタデータ操作なので、成功すれば元のパスは即座に空になる（途中で
+    一部だけ消えるという状態が起きない）。リネーム自体が失敗する場合
+    （中のファイルが使用中で改名すらできない等）は、元のディレクトリを一切
+    変更せず例外を送出する。
+
+    以前の実装は shutil.rmtree の onerror でファイルごとの削除失敗を握りつぶし
+    ながら処理を継続していたため、ロックされたファイル（train.log等）だけが
+    残り、job.json 等の他のファイルは削除済みという中途半端な状態を生んでいた
+    （実行中ジョブを誤って上書きした際に job.json が消失した根本原因）。
     """
+    if not path.exists():
+        return
+
+    trash = path.with_name(f"{path.name}.__deleting_{os.getpid()}_{int(time.time() * 1000)}")
+    try:
+        os.rename(path, trash)
+    except OSError as e:
+        raise TrainConflictError(
+            "既存ジョブディレクトリの削除を開始できませんでした"
+            "（ファイルが使用中の可能性があります）。既存ジョブのファイルは変更していません。"
+            f" 詳細: {e!r}"
+        ) from e
 
     def _on_error(func, p, _exc):  # 読み取り専用属性を外して再試行
         try:
@@ -80,20 +100,70 @@ def _safe_rmtree(path: Path) -> None:
             pass
 
     last_err: Exception | None = None
-    for attempt in range(6):
+    for _attempt in range(6):
         try:
-            shutil.rmtree(path, onerror=_on_error)
-            if not path.exists():
+            shutil.rmtree(trash, onerror=_on_error)
+            if not trash.exists():
                 return
         except OSError as e:  # noqa: PERF203
             last_err = e
-        if not path.exists():
+        if not trash.exists():
             return
         time.sleep(0.3)
-    raise TrainConflictError(
-        "既存ジョブの削除に失敗しました（学習プロセスが実行中の可能性があります）。"
-        f" 詳細: {last_err!r}"
-    )
+    # リネームには成功しているので、元の job_id のパスは既に空いており新規ジョブは
+    # 安全に作成できる。ゴミ箱側の削除だけが残った場合は警告に留め、処理は継続する。
+    print(f"[WARN] 削除予定ディレクトリの完全な削除に失敗しました（残存: {trash}）: {last_err!r}")
+
+
+_ACTIVE_STATUSES = {"queued", "running"}
+
+
+def _pid_alive(pid: int) -> bool:
+    """PIDのプロセスが現在も存在するかを確認する（シグナル送信・終了は行わない）。
+
+    Windowsでは os.kill(pid, 0) が実際に TerminateProcess を呼び出してしまうため
+    生存確認には使えない。tasklist で確認する
+    （backend/tests/smoke_capture.py 等、他のワーカーPID確認と同じ手法）。
+    """
+    if os.name == "nt":
+        try:
+            res = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return str(pid) in res.stdout
+        except OSError:
+            return True  # 確認できない場合は安全側（実行中とみなす）
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True  # 権限等で確認できない場合は安全側
+    return True
+
+
+def _is_job_active(run_dir: Path) -> bool:
+    """既存ジョブが実行中（＝ディレクトリへ一切触れてはいけない状態）かどうかを判定する。
+
+    job.json が読めない場合は判定不能として安全側（実行中とみなす）に倒す
+    （壊れたjob.jsonを理由に誤って削除してしまうことを防ぐ）。
+    status が queued/running でなくても、記録済みPIDのプロセスがまだ生きていれば
+    実行中とみなす（statusの更新漏れ・クラッシュ以外の理由で古いままのケースへの保険）。
+    """
+    job_json = run_dir / "job.json"
+    try:
+        data = json.loads(job_json.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return True
+    if data.get("status") in _ACTIVE_STATUSES:
+        return True
+    pid = data.get("pid")
+    if isinstance(pid, int) and _pid_alive(pid):
+        return True
+    return False
 
 
 def _count_images(d: Path) -> int:
@@ -206,6 +276,13 @@ def start_job(name: str, req: TrainJobCreate) -> TrainJobStartResponse:
     job_id = req.job_name
     run_dir = paths.train_job_dir(name, job_id)
     if run_dir.exists():
+        # 実行中ジョブは overwrite の値に関わらず一切削除しない（ファイルにも触れない）。
+        # ここで弾かなければ、_safe_rmtree が実行中プロセスのディレクトリを削除しにいってしまう。
+        if _is_job_active(run_dir):
+            raise TrainConflictError(
+                f"学習ジョブ '{job_id}' は実行中のため上書きできません。"
+                "完了を待つか、別の job_name を指定してください。"
+            )
         if not req.overwrite:
             raise TrainConflictError(
                 f"学習ジョブ '{job_id}' は既に存在します。"
@@ -272,7 +349,7 @@ def start_job(name: str, req: TrainJobCreate) -> TrainJobStartResponse:
     env["PYTHONIOENCODING"] = "utf-8"
     log_f = log_path.open("a", encoding="utf-8", errors="replace")
     try:
-        subprocess.Popen(
+        proc = subprocess.Popen(
             cmd,
             stdout=log_f,
             stderr=subprocess.STDOUT,
@@ -282,6 +359,12 @@ def start_job(name: str, req: TrainJobCreate) -> TrainJobStartResponse:
     finally:
         # 子プロセスは自身のOSハンドルを保持するので親側は閉じてよい
         log_f.close()
+
+    # 起動直後にPIDを記録しておく（実行中判定の保険。capture/video系と同じ考え方）。
+    job["pid"] = proc.pid
+    _job_json_path(name, job_id).write_text(
+        json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     return TrainJobStartResponse(
         project_name=name,
