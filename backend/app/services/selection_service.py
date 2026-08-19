@@ -1,7 +1,8 @@
 """画像選別。
 
-画像を物理削除せず、選別結果を selection.json に保存する。低品質（小サイズ・
-暗/明・ブレ）・重複を検出し、status（included/excluded/review）を付与する。
+低品質（小サイズ・暗/明・ブレ）・重複を自動検出して status（included/review）を
+selection.json に保存する。自動検出はマーキングのみ（非破壊）で、実際に画像を
+取り除きたい場合は `delete_image()` による明示的な削除操作が必要（元に戻せない）。
 
 OpenCV/NumPy は使わず Pillow のみ。ブレはグレースケールの FIND_EDGES 後の
 画素分散（ヒストグラムから算出）で近似する。
@@ -20,6 +21,7 @@ from PIL import Image, ImageFilter, ImageOps, UnidentifiedImageError
 from ..core import paths
 from ..core.config import settings
 from ..schemas.selection import (
+    SelectionDeleteResponse,
     SelectionGetResponse,
     SelectionItem,
     SelectionRotateResponse,
@@ -31,7 +33,7 @@ from ..schemas.selection import (
 )
 from .project_service import ProjectError, project_exists
 
-_VALID_STATUS = {"included", "excluded", "review"}
+_VALID_STATUS = {"included", "review"}
 
 
 class SelectionError(Exception):
@@ -131,13 +133,9 @@ def run(name: str, req: SelectionRunRequest) -> SelectionRunResponse:
             else:
                 hash_first[digest] = image_id
 
-        # status: 重複2枚目以降は excluded、その他の警告は review、無ければ included
-        if duplicate_of is not None:
-            status = "excluded"
-        elif warnings:
-            status = "review"
-        else:
-            status = "included"
+        # status: 警告（重複含む）があれば review（要確認）、無ければ included。
+        # 自動検出だけで削除まではしない（削除は利用者が個別に確認して行う破壊的操作）。
+        status = "review" if warnings else "included"
 
         items.append(SelectionItem(
             image_id=image_id, image_name=p.name, source=used_source,
@@ -206,7 +204,7 @@ def get_selection(name: str) -> SelectionGetResponse:
 def update_status(name: str, image_id: str, upd: SelectionStatusUpdate) -> SelectionStatusResponse:
     _require_project(name)
     if upd.status not in _VALID_STATUS:
-        raise SelectionValidationError("status は included/excluded/review のいずれかです。")
+        raise SelectionValidationError("status は included/review のいずれかです（除外は削除操作に置き換えられました）。")
     data = _load(name)
     found = None
     for it in data.get("items", []):
@@ -286,6 +284,88 @@ def rotate_image(name: str, image_id: str, source: str, angle: int) -> Selection
         image_id=stem, source="+".join(rotated_sources), angle=angle,
         width=last_w, height=last_h, warning=warning,
     )
+
+
+def delete_image(name: str, image_id: str) -> SelectionDeleteResponse:
+    """画像を完全に削除する（raw/processed の実画像・サムネイル・アノテーションラベル・
+    selection.json 上の該当項目）。
+
+    これまでの「除外(excluded)」は selection.json 上のマーキングのみで非破壊だったが、
+    利用者からの明示的な要望により、この削除操作は実ファイルを消去する破壊的操作
+    （元に戻せない）にしている。自動検出（重複・低品質等）では削除まで行わず、
+    review としてマーキングするだけにとどめ、この関数の呼び出しは常に利用者の
+    明示的な操作（削除ボタン押下）に限定すること。
+    """
+    _require_project(name)
+    stem = Path(image_id).stem
+    # "." ".." 空文字はいずれも Path(x).name == x を満たしてしまい、単純な
+    # 「stem != Path(stem).name」比較だけでは弾けない（pathlibの既知の挙動）。
+    # 実際にはこの後 stem を裸のパス片として結合する箇所が無い（必ずファイル名の
+    # 比較用途、または f"{stem}.txt" のようにサフィックスを付けてから結合する）ため
+    # 現状はディレクトリ脱出には至らないが、意図通りの検証にするため明示的に弾く。
+    if not stem or stem in (".", "..") or "/" in stem or "\\" in stem:
+        raise SelectionValidationError("不正な image_id です。")
+
+    deleted_files: list[str] = []
+    failed_files: list[str] = []
+
+    def _try_unlink(p: Path, rel: str) -> None:
+        try:
+            p.unlink(missing_ok=True)
+            deleted_files.append(rel)
+        except OSError as e:
+            # 他プロセスに開かれている等で削除できなかった場合、ここで例外を
+            # 送出して処理を打ち切ると「一部だけ削除された中途半端な状態」を
+            # 検知できずに終わってしまう。他の対象の削除は試行を続け、最後に
+            # まとめて 409 として報告する。
+            failed_files.append(f"{rel}（削除失敗: {e.strerror or e}）")
+
+    for src_name in ("raw", "processed"):
+        img_dir = paths.images_dir_for_source(name, src_name)
+        if not img_dir.exists():
+            continue
+        for p in list(img_dir.iterdir()):
+            if p.is_file() and p.stem == stem and p.suffix.lower() in settings.allowed_image_suffixes:
+                _try_unlink(p, f"{src_name}/images/{p.name}")
+
+    thumbs = paths.processed_thumbnails_dir(name)
+    if thumbs.exists():
+        for p in list(thumbs.iterdir()):
+            if p.is_file() and p.stem == stem:
+                _try_unlink(p, f"processed/thumbnails/{p.name}")
+
+    label_path = paths.labels_dir(name) / f"{stem}.txt"
+    if label_path.exists():
+        _try_unlink(label_path, f"annotations/labels/{label_path.name}")
+
+    if not deleted_files and not failed_files:
+        raise SelectionNotFoundError(f"画像 '{image_id}' が見つかりません。")
+
+    if failed_files:
+        raise SelectionConflictError(
+            "一部のファイルが使用中などの理由で削除できませんでした"
+            f"（削除済み: {len(deleted_files)}件 / 失敗: {len(failed_files)}件）: "
+            + ", ".join(failed_files)
+        )
+
+    # selection.json に該当項目があれば取り除く（無くてもエラーにしない）
+    sel_path = paths.selection_path(name)
+    if sel_path.exists():
+        try:
+            data = json.loads(sel_path.read_text(encoding="utf-8-sig"))
+        except (json.JSONDecodeError, OSError):
+            data = None
+        if data is not None:
+            items = data.get("items", [])
+            new_items = [it for it in items if it.get("image_id") != stem]
+            if len(new_items) != len(items):
+                data["items"] = new_items
+                data["summary"] = _summarize([SelectionItem(**it) for it in new_items]).model_dump()
+                sel_path.write_text(
+                    json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+
+    return SelectionDeleteResponse(image_id=stem, deleted_files=deleted_files)
 
 
 def load_allowed_stems(name: str, include_review: bool) -> tuple[set[str] | None, str | None]:

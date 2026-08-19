@@ -12,6 +12,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 _tmp = tempfile.mkdtemp(prefix="yts_sel_")
 os.environ["YTS_PROJECTS_ROOT"] = _tmp
@@ -21,6 +22,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 from PIL import Image  # noqa: E402
 
 from app.main import app  # noqa: E402
+from app.services import selection_service  # noqa: E402
+from app.services.selection_service import SelectionValidationError  # noqa: E402
 
 client = TestClient(app)
 PROJ = "sel_proj"
@@ -97,13 +100,13 @@ def main() -> None:
     check("dark_001 warning", "dark_image" in items["dark_001"]["warnings"])
     check("bright_001 warning", "bright_image" in items["bright_001"]["warnings"])
     check("blur_001 warning", "blur_image" in items["blur_001"]["warnings"])
-    # 重複2枚目は excluded
+    # 重複2枚目は review（自動検出だけでは削除しない。要確認として残す）
     dup_item = items["dup_001"]
     ok_item = items["ok_001"]
     # どちらが先かはファイル名順（dup_001 < ok_001）なので dup_001 が先＝originalになる
-    excluded_dup = dup_item if dup_item["status"] == "excluded" else ok_item
-    check("duplicate 2nd excluded", excluded_dup["status"] == "excluded" and "duplicate_image" in excluded_dup["warnings"])
-    check("ok included", items["ok_001"]["status"] in ("included", "excluded"))  # 片方がexcluded
+    review_dup = dup_item if dup_item["status"] == "review" else ok_item
+    check("duplicate 2nd -> review", review_dup["status"] == "review" and "duplicate_image" in review_dup["warnings"])
+    check("ok included", items["ok_001"]["status"] in ("included", "review"))  # 片方がreview
 
     # 手動更新
     r = client.put(f"{base}/images/small_001", json={"status": "included", "manual_reason": "使う"})
@@ -115,15 +118,106 @@ def main() -> None:
     # 不正status → 400
     r = client.put(f"{base}/images/small_001", json={"status": "bad"})
     check("bad status -> 400", r.status_code == 400)
+    # excluded は削除操作に置き換えられたため、もはや有効な手動statusではない → 400
+    r = client.put(f"{base}/images/small_001", json={"status": "excluded"})
+    check("excluded status rejected -> 400", r.status_code == 400)
     # 存在しない画像 → 404
     r = client.put(f"{base}/images/no_img", json={"status": "included"})
     check("missing image -> 404", r.status_code == 404)
 
+    # === 削除（実ファイルを完全に消す破壊的操作） ===
+    lbl_dir = ROOT / PROJ / "annotations" / "labels"
+    lbl_dir.mkdir(parents=True, exist_ok=True)
+    (lbl_dir / "blur_001.txt").write_text("0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
+    raw_path = ROOT / PROJ / "raw" / "images" / "blur_001.png"
+    check("raw file exists before delete", raw_path.exists())
+
+    r = client.delete(f"{base}/images/blur_001")
+    check("delete 200", r.status_code == 200)
+    del_res = r.json()
+    check("delete reports raw file", any("raw/images/blur_001.png" == f for f in del_res["deleted_files"]))
+    check("delete reports label file", any("annotations/labels/blur_001.txt" == f for f in del_res["deleted_files"]))
+    check("raw file actually removed", not raw_path.exists())
+    check("label file actually removed", not (lbl_dir / "blur_001.txt").exists())
+
+    r = client.get(base)
+    remaining_ids = {it["image_id"] for it in r.json()["items"]}
+    check("deleted image removed from selection.json", "blur_001" not in remaining_ids)
+    check("image_count decreased", r.json()["summary"]["image_count"] == 5)
+
+    # 削除済み画像を再度削除 → 404
+    r = client.delete(f"{base}/images/blur_001")
+    check("delete missing -> 404", r.status_code == 404)
+
+    # 他の画像には一切影響がないこと（削除したのは blur_001 のみ）
+    dark_raw = ROOT / PROJ / "raw" / "images" / "dark_001.png"
+    check("other image untouched (raw)", dark_raw.exists())
+    r = client.get(base)
+    items_after = {it["image_id"]: it for it in r.json()["items"]}
+    check("other image untouched (selection.json)", "dark_001" in items_after)
+
+    # === 削除: 不正な image_id（パストラバーサル等）は実際にファイルを消さず 400 ===
+    # HTTP経由だと ".." や "." はURL正規化で別ルートに解決されてしまい、
+    # このエンドポイントへ literal な ".." が到達するかはクライアント実装依存のため、
+    # サービス関数を直接呼んでバリデーションそのものを検証する。
+    for bad_id in ("..", ".", ""):
+        try:
+            selection_service.delete_image(PROJ, bad_id)
+            check(f"delete rejects {bad_id!r}", False)
+        except SelectionValidationError:
+            check(f"delete rejects {bad_id!r} -> ValidationError", True)
+
+    # プロジェクト外を指せない・意図しないファイルへ影響しないことの確認:
+    # ".." 等を渡しても、プロジェクト外は元よりプロジェクト内のいかなるファイルも
+    # 削除されていないこと（raw/labels の枚数が変化していない）。
+    raw_count_before = len(list((ROOT / PROJ / "raw" / "images").iterdir()))
+    lbl_count_before = len(list((ROOT / PROJ / "annotations" / "labels").iterdir()))
+    for bad_id in ("..", ".", "", "../../etc/passwd", "..%2Fetc%2Fpasswd"):
+        try:
+            selection_service.delete_image(PROJ, bad_id)
+        except Exception:  # noqa: BLE001 - 例外の種類は問わず、副作用だけ見る
+            pass
+    check(
+        "no raw files removed by traversal-like ids",
+        len(list((ROOT / PROJ / "raw" / "images").iterdir())) == raw_count_before,
+    )
+    check(
+        "no label files removed by traversal-like ids",
+        len(list((ROOT / PROJ / "annotations" / "labels").iterdir())) == lbl_count_before,
+    )
+
+    # === 削除: 一部ファイルの削除に失敗した場合、409になり中途半端な状態を隠さないこと ===
+    # dark_001 のラベルを削除対象として用意し、raw画像の unlink だけを失敗させる。
+    (lbl_dir / "dark_001.txt").write_text("0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
+    dark_raw_path = ROOT / PROJ / "raw" / "images" / "dark_001.png"
+    check("dark_001 raw exists before partial-failure test", dark_raw_path.exists())
+
+    real_unlink = Path.unlink
+
+    def _flaky_unlink(self: Path, missing_ok: bool = False):
+        if self.name == "dark_001.png":
+            raise PermissionError(13, "simulated: file in use")
+        return real_unlink(self, missing_ok=missing_ok)
+
+    with patch.object(Path, "unlink", _flaky_unlink):
+        r = client.delete(f"{base}/images/dark_001")
+    check("partial failure -> 409 (not 200/500)", r.status_code == 409)
+    check("failed raw file NOT deleted (no partial silent loss)", dark_raw_path.exists())
+    check(
+        "other target (label) still deleted despite raw failure",
+        not (lbl_dir / "dark_001.txt").exists(),
+    )
+
+    # 失敗した分は実体が残っているので、再度（モックなしで）削除すれば正常に完了する
+    r = client.delete(f"{base}/images/dark_001")
+    check("retry after transient failure -> 200", r.status_code == 200)
+    check("dark_001 raw removed on retry", not dark_raw_path.exists())
+
     # === dataset 連携 ===
-    # ラベルを全画像に付与
+    # ラベルを残りの画像に付与（blur_001/dark_001は上で削除済みのため対象外）
     lbl = ROOT / PROJ / "annotations" / "labels"
     lbl.mkdir(parents=True, exist_ok=True)
-    for stem in ["ok_001", "small_001", "dark_001", "bright_001", "blur_001", "dup_001"]:
+    for stem in ["ok_001", "small_001", "bright_001", "dup_001"]:
         (lbl / f"{stem}.txt").write_text("0 0.5 0.5 0.2 0.2\n", encoding="utf-8")
 
     # use_selection=true, include_review=false → excluded/review除外

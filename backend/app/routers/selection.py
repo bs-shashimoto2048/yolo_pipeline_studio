@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from ..schemas.selection import (
+    SelectionDeleteResponse,
     SelectionGetResponse,
     SelectionRotateRequest,
     SelectionRotateResponse,
@@ -62,5 +63,18 @@ def rotate_image(
         return selection_service.rotate_image(name, image_id, payload.source, payload.angle)
     except SelectionValidationError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except (SelectionNotFoundError, ProjectError) as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.delete("/images/{image_id}", response_model=SelectionDeleteResponse)
+def delete_image(name: str, image_id: str) -> SelectionDeleteResponse:
+    """画像を完全に削除する（raw/processed/サムネイル/ラベル/selection.json、元に戻せない）。"""
+    try:
+        return selection_service.delete_image(name, image_id)
+    except SelectionValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except SelectionConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
     except (SelectionNotFoundError, ProjectError) as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

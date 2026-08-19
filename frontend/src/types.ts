@@ -343,6 +343,11 @@ export interface SelectionGetResponse {
   items: SelectionItem[];
 }
 
+export interface SelectionDeleteResponse {
+  image_id: string;
+  deleted_files: string[];
+}
+
 export interface ReportCreateRequest {
   report_name?: string | null;
   include_images?: boolean;

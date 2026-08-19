@@ -36,6 +36,7 @@ import type {
   PreprocessPreviewResponse,
   PreprocessRunResponse,
   PreprocessSettings,
+  SelectionDeleteResponse,
   SelectionGetResponse,
   SelectionRotateResponse,
   SelectionRunRequest,
@@ -602,6 +603,14 @@ export const api = {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status, manual_reason: manualReason ?? null }),
+      })
+    );
+  },
+
+  async deleteSelectionImage(name: string, imageId: string): Promise<SelectionDeleteResponse> {
+    return handle(
+      await fetch(`${BASE}/projects/${name}/selection/images/${encodeURIComponent(imageId)}`, {
+        method: "DELETE",
       })
     );
   },

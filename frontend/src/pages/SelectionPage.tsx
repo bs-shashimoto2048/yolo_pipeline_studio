@@ -1,16 +1,16 @@
-// 画像選別画面。低品質・重複を検出し included/excluded/review を管理（物理削除しない）。
+// 画像選別画面。低品質・重複を自動検出して included/review を管理する。
+// 「削除」は実ファイル（raw/processed/サムネイル/ラベル）を消す破壊的操作（元に戻せない）。
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api/client";
 import HoverImagePreview from "../components/HoverImagePreview";
 import type { SelectionItem, SelectionSummary } from "../types";
 
-type Filter = "all" | "included" | "excluded" | "review" | "duplicate" | "small" | "dark" | "bright" | "blur";
+type Filter = "all" | "included" | "review" | "duplicate" | "small" | "dark" | "bright" | "blur";
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "すべて" },
   { key: "included", label: "included" },
-  { key: "excluded", label: "excluded" },
   { key: "review", label: "review" },
   { key: "duplicate", label: "duplicate" },
   { key: "small", label: "small" },
@@ -81,6 +81,24 @@ export default function SelectionPage() {
     }
   }
 
+  async function deleteImage(item: SelectionItem) {
+    if (
+      !window.confirm(
+        `画像「${item.image_name}」を削除します。\n` +
+          "raw/processed の画像本体・サムネイル・アノテーションラベルもすべて削除されます。\n" +
+          "この操作は元に戻せません。"
+      )
+    )
+      return;
+    setError("");
+    try {
+      await api.deleteSelectionImage(name, item.image_id);
+      await load();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   async function rotate(item: SelectionItem, angle: number) {
     setError("");
     try {
@@ -98,7 +116,6 @@ export default function SelectionPage() {
     return items.filter((it) => {
       switch (filter) {
         case "included": return it.status === "included";
-        case "excluded": return it.status === "excluded";
         case "review": return it.status === "review";
         case "all": return true;
         default: return it.warnings.includes(`${filter}_image`);
@@ -106,16 +123,20 @@ export default function SelectionPage() {
     });
   }, [items, filter]);
 
+  // "excluded" は旧仕様（削除に置き換え前）の selection.json に残っている場合のみ表示され得る
   const statusClass = (s: string) =>
     s === "included" ? "success" : s === "excluded" ? "error" : "warn";
+  const statusLabel = (s: string) =>
+    s === "included" ? "✓ 採用" : s === "excluded" ? "✕ 除外（旧データ）" : "△ 要確認";
 
   return (
     <div className="page">
       <h1>画像選別: {name}</h1>
       <p className="muted">
-        低品質・重複画像を検出して included / excluded / review を管理します。
-        <strong>画像は物理削除しません</strong>（selection.json に保存）。除外は
-        データセット作成時に反映できます。
+        低品質・重複画像を自動検出し、included（採用）/ review（要確認）を管理します。
+        自動検出だけでは削除されず一覧に残るので、内容を確認してから
+        画像ごとに<strong>「削除」</strong>を押してください。
+        <strong>削除は raw/processed の画像本体・サムネイル・アノテーションラベルも含めて完全に消去され、元に戻せません。</strong>
       </p>
 
       <details className="card sel-settings" open>
@@ -177,9 +198,7 @@ export default function SelectionPage() {
           <div className="thumb-grid sel-grid">
             {view.map((it) => (
               <figure key={it.image_id} className={"thumb sel-card status-" + it.status}>
-                <span className={"sel-status-badge " + statusClass(it.status)}>
-                  {it.status === "included" ? "✓ 採用" : it.status === "excluded" ? "✕ 除外" : "△ 要確認"}
-                </span>
+                <span className={"sel-status-badge " + statusClass(it.status)}>{statusLabel(it.status)}</span>
                 <HoverImagePreview
                   thumbSrc={`${api.thumbnailUrl(name, it.image_name, it.source)}&v=${bust}`}
                   fullSrc={`${api.imageUrl(name, it.image_name, it.source)}&v=${bust}`}
@@ -201,10 +220,11 @@ export default function SelectionPage() {
                       採用
                     </button>
                     <button
-                      className={"sel-act danger" + (it.status === "excluded" ? " on" : "")}
-                      onClick={() => setStatus(it, "excluded")}
+                      className="sel-act danger"
+                      title="raw/processed・サムネイル・ラベルを完全に削除します（元に戻せません）"
+                      onClick={() => deleteImage(it)}
                     >
-                      除外
+                      削除
                     </button>
                     <span className="sel-act-sep" />
                     <button className="sel-act secondary" title="反時計90°" onClick={() => rotate(it, 90)}>↺</button>

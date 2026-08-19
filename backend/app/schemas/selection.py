@@ -24,7 +24,7 @@ class SelectionItem(BaseModel):
     source: str
     width: int
     height: int
-    status: str  # included | excluded | review
+    status: str  # included | review（旧excludedのデータが残っている場合のみ表示上あり得る）
     warnings: list[str] = []
     reasons: list[str] = []
     hash: str | None = None
@@ -83,3 +83,10 @@ class SelectionRotateResponse(BaseModel):
     width: int
     height: int
     warning: str | None = None
+
+
+class SelectionDeleteResponse(BaseModel):
+    """画像削除の結果（raw/processed/サムネイル/ラベルのうち実際に消えたものの一覧）。"""
+
+    image_id: str
+    deleted_files: list[str]
