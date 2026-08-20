@@ -11,6 +11,7 @@ import type {
   PreprocessInfoResponse,
   TrainJobInfo,
   VideoJobInfo,
+  VideoSourceInfo,
 } from "../types";
 
 const DEVICES = ["auto", "cpu", "mps", "cuda"];
@@ -89,6 +90,9 @@ export default function PredictPage() {
   const [cameras, setCameras] = useState<CameraInfo[]>([]);
   const [camerasLoading, setCamerasLoading] = useState(false);
   const [cameraIndex, setCameraIndex] = useState(0);
+  const [sourceType, setSourceType] = useState<"camera" | "url">("camera");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [knownSources, setKnownSources] = useState<VideoSourceInfo[]>([]);
   const [videoName, setVideoName] = useState("video_001");
   const [videoFps, setVideoFps] = useState(15);
   const [inferFps, setInferFps] = useState(5);
@@ -96,6 +100,8 @@ export default function PredictPage() {
   const [videoBusy, setVideoBusy] = useState(false);
   const [videoError, setVideoError] = useState("");
   const [streamSrc, setStreamSrc] = useState("");
+  const [settingsBusy, setSettingsBusy] = useState(false);
+  const [settingsApplied, setSettingsApplied] = useState(false);
 
   async function loadCameras() {
     setCamerasLoading(true);
@@ -107,6 +113,25 @@ export default function PredictPage() {
       setVideoError(String(e));
     } finally {
       setCamerasLoading(false);
+    }
+  }
+
+  // このプロジェクトで過去に映像取得できたURLの一覧（新しい順）を読み込む
+  async function loadKnownSources() {
+    try {
+      const r = await api.listVideoSources(name);
+      setKnownSources(r.sources);
+    } catch {
+      /* ignore（一覧表示のみなので失敗しても致命的ではない） */
+    }
+  }
+
+  async function onDeleteKnownSource(url: string) {
+    try {
+      const r = await api.deleteVideoSource(name, url);
+      setKnownSources(r.sources);
+    } catch (e) {
+      setVideoError(String(e));
     }
   }
 
@@ -254,6 +279,10 @@ export default function PredictPage() {
       try {
         const d = await api.getVideoJob(name, vid);
         setVideoJob(d);
+        if (d.status === "running" && d.source_type === "url") {
+          // 実際に映像を取得できたURLとしてサーバー側に記憶されるので一覧を更新する
+          loadKnownSources();
+        }
         if (d.status === "stopped" || d.status === "failed" || d.status === "completed") {
           if (videoTimer.current) window.clearInterval(videoTimer.current);
         }
@@ -277,7 +306,9 @@ export default function PredictPage() {
         video_job_name: videoName.trim(),
         train_job_id: trainJobId,
         weight_type: weightType,
+        source_type: sourceType,
         camera_index: cameraIndex,
+        source_url: sourceType === "url" ? sourceUrl.trim() : undefined,
         video_fps: videoFps,
         infer_fps: inferFps,
         conf,
@@ -295,6 +326,31 @@ export default function PredictPage() {
       setVideoError(String(e));
     } finally {
       setVideoBusy(false);
+    }
+  }
+
+  // 実行中ジョブのFPS・推論設定を再接続なしで即時反映する
+  async function onApplyVideoSettings() {
+    if (!videoJob) return;
+    setVideoError("");
+    setSettingsBusy(true);
+    setSettingsApplied(false);
+    try {
+      const d = await api.updateVideoJobSettings(name, videoJob.video_job_id, {
+        video_fps: videoFps,
+        infer_fps: inferFps,
+        conf,
+        iou,
+        imgsz,
+        device,
+      });
+      setVideoJob(d);
+      setSettingsApplied(true);
+      window.setTimeout(() => setSettingsApplied(false), 2000);
+    } catch (e) {
+      setVideoError(String(e));
+    } finally {
+      setSettingsBusy(false);
     }
   }
 
@@ -329,9 +385,10 @@ export default function PredictPage() {
           onClick={() => {
             setMode("video");
             if (cameras.length === 0) loadCameras();
+            loadKnownSources();
           }}
         >
-          映像（カメラ）
+          映像（カメラ/URL）
         </button>
       </div>
 
@@ -634,9 +691,9 @@ export default function PredictPage() {
       {mode === "video" && (
         <>
           <p className="muted">
-            接続中のカメラ映像にリアルタイム推論します（サーバー側 OpenCV）。映像FPSと推論FPSは
-            別々に設定でき、推論は間引き実行されます。前処理「最新設定」を選ぶと、各フレームに
-            学習時と同じ前処理を適用します。
+            接続中のカメラ、またはネットワークカメラの映像URL（RTSP/HTTP・MJPEG）にリアルタイム推論します
+            （サーバー側 OpenCV）。映像FPSと推論FPSは別々に設定でき、推論は間引き実行されます。前処理
+            「最新設定」を選ぶと、各フレームに学習時と同じ前処理を適用します。
           </p>
 
           {/* 左: 設定 / 右: ライブ映像（映像を広め・最初から確保） */}
@@ -644,28 +701,86 @@ export default function PredictPage() {
           <section className="card">
             <h2>映像推論{videoActive && <span className="video-live-badge">● 実行中</span>}</h2>
             <form onSubmit={onStartVideo}>
-              <h3 className="train-group-title">カメラ・モデル</h3>
+              <h3 className="train-group-title">映像ソース・モデル</h3>
               <div className="predict-fields">
                 <label className="field field-wide">
-                  カメラ
+                  映像ソース
                   <div className="video-camera-row">
                     <select
-                      value={cameraIndex}
-                      onChange={(e) => setCameraIndex(Number(e.target.value))}
-                      disabled={videoActive || cameras.length === 0}
+                      value={sourceType}
+                      onChange={(e) => setSourceType(e.target.value as "camera" | "url")}
+                      disabled={!!videoActive}
                     >
-                      {cameras.length === 0 && <option value={0}>（カメラ未検出）</option>}
-                      {cameras.map((c) => (
-                        <option key={c.index} value={c.index}>
-                          {c.label}
-                        </option>
-                      ))}
+                      <option value="camera">ローカルカメラ</option>
+                      <option value="url">URL（RTSP/HTTP・MJPEG）</option>
                     </select>
-                    <button type="button" className="secondary" onClick={loadCameras} disabled={camerasLoading || !!videoActive}>
-                      {camerasLoading ? "検出中…" : "再検出"}
-                    </button>
                   </div>
                 </label>
+                {sourceType === "camera" ? (
+                  <label className="field field-wide">
+                    カメラ
+                    <div className="video-camera-row">
+                      <select
+                        value={cameraIndex}
+                        onChange={(e) => setCameraIndex(Number(e.target.value))}
+                        disabled={videoActive || cameras.length === 0}
+                      >
+                        {cameras.length === 0 && <option value={0}>（カメラ未検出）</option>}
+                        {cameras.map((c) => (
+                          <option key={c.index} value={c.index}>
+                            {c.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button type="button" className="secondary" onClick={loadCameras} disabled={camerasLoading || !!videoActive}>
+                        {camerasLoading ? "検出中…" : "再検出"}
+                      </button>
+                    </div>
+                  </label>
+                ) : (
+                  <label className="field field-wide">
+                    映像URL
+                    {knownSources.length > 0 && (
+                      <div className="video-camera-row" style={{ marginBottom: 4 }}>
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            if (e.target.value) setSourceUrl(e.target.value);
+                          }}
+                          disabled={!!videoActive}
+                        >
+                          <option value="">保存済みURLから選択…（{knownSources.length}件）</option>
+                          {knownSources.map((s) => (
+                            // value は再接続用にraw URL（password含む場合あり）を保持するが、
+                            // 表示テキストはmasked_url（passwordマスク済み）を使い画面に平文表示しない。
+                            <option key={s.url} value={s.url}>
+                              {s.masked_url}
+                            </option>
+                          ))}
+                        </select>
+                        {sourceUrl && knownSources.some((s) => s.url === sourceUrl) && (
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => onDeleteKnownSource(sourceUrl)}
+                            disabled={!!videoActive}
+                            title="この保存済みURLを削除"
+                          >
+                            削除
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    <input
+                      type="text"
+                      value={sourceUrl}
+                      onChange={(e) => setSourceUrl(e.target.value)}
+                      disabled={!!videoActive}
+                      placeholder="http://192.0.2.10/mjpg/video.mjpg?camera=1 または rtsp://..."
+                      required
+                    />
+                  </label>
+                )}
                 <label className="field field-wide">
                   video_job_name
                   <input value={videoName} onChange={(e) => setVideoName(e.target.value)} disabled={!!videoActive} required />
@@ -691,8 +806,18 @@ export default function PredictPage() {
                   </select>
                 </label>
               </div>
+              {sourceType === "url" && (
+                <p className="muted" style={{ fontSize: "0.76rem", margin: "4px 0" }}>
+                  ネットワークカメラのビューワページのURL（view.shtml?...&imagepath=... 形式）を貼り付けた場合、
+                  クエリの実映像パスを自動検出してストリームURLへ解決します（開始後の状態表示で解決結果を確認できます）。
+                  映像取得に成功したURLはこのプロジェクトに自動で記憶され、次回以降は上のリストから選べます。
+                </p>
+              )}
 
-              <h3 className="train-group-title">FPS・推論設定</h3>
+              <h3 className="train-group-title">
+                FPS・推論設定
+                {videoActive && <span className="muted" style={{ fontSize: "0.76rem", fontWeight: "normal" }}> （実行中も変更・即時反映できます）</span>}
+              </h3>
               <div className="predict-fields">
                 <label className="field">
                   映像FPS
@@ -702,7 +827,6 @@ export default function PredictPage() {
                     max={60}
                     value={videoFps}
                     onChange={(e) => setVideoFps(Number(e.target.value))}
-                    disabled={!!videoActive}
                   />
                 </label>
                 <label className="field">
@@ -713,24 +837,23 @@ export default function PredictPage() {
                     max={videoFps}
                     value={inferFps}
                     onChange={(e) => setInferFps(Number(e.target.value))}
-                    disabled={!!videoActive}
                   />
                 </label>
                 <label className="field">
                   conf
-                  <input type="number" step="0.05" value={conf} onChange={(e) => setConf(Number(e.target.value))} disabled={!!videoActive} />
+                  <input type="number" step="0.05" value={conf} onChange={(e) => setConf(Number(e.target.value))} />
                 </label>
                 <label className="field">
                   iou
-                  <input type="number" step="0.05" value={iou} onChange={(e) => setIou(Number(e.target.value))} disabled={!!videoActive} />
+                  <input type="number" step="0.05" value={iou} onChange={(e) => setIou(Number(e.target.value))} />
                 </label>
                 <label className="field">
                   imgsz
-                  <input type="number" value={imgsz} onChange={(e) => setImgsz(Number(e.target.value))} disabled={!!videoActive} />
+                  <input type="number" value={imgsz} onChange={(e) => setImgsz(Number(e.target.value))} />
                 </label>
                 <label className="field">
                   device
-                  <select value={device} onChange={(e) => setDevice(e.target.value)} disabled={!!videoActive}>
+                  <select value={device} onChange={(e) => setDevice(e.target.value)}>
                     {DEVICES.map((d) => (
                       <option key={d} value={d}>
                         {d}
@@ -742,6 +865,14 @@ export default function PredictPage() {
               <p className="muted" style={{ fontSize: "0.76rem", margin: "4px 0" }}>
                 映像FPSは表示、推論FPSは検出の頻度です（推論FPS ≤ 映像FPS）。推論FPSを下げると負荷が減ります。
               </p>
+              {videoActive && (
+                <div className="row" style={{ gap: 8, alignItems: "center", margin: "4px 0 8px" }}>
+                  <button type="button" className="secondary" onClick={onApplyVideoSettings} disabled={settingsBusy}>
+                    {settingsBusy ? "反映中…" : "この設定を実行中のジョブに反映"}
+                  </button>
+                  {settingsApplied && <span className="success">✓ 反映しました</span>}
+                </div>
+              )}
 
               <h3 className="train-group-title">前処理</h3>
               <div className="predict-fields">
@@ -769,7 +900,12 @@ export default function PredictPage() {
                 <button
                   type="submit"
                   className="predict-start"
-                  disabled={videoBusy || !trainJobId || !videoName.trim() || cameras.length === 0}
+                  disabled={
+                    videoBusy ||
+                    !trainJobId ||
+                    !videoName.trim() ||
+                    (sourceType === "camera" ? cameras.length === 0 : !sourceUrl.trim())
+                  }
                 >
                   {videoBusy ? "開始中…" : "映像推論を開始"}
                 </button>
@@ -783,7 +919,7 @@ export default function PredictPage() {
             {trainJobs.length === 0 && (
               <div className="warn">学習ジョブがありません。「学習」で先に実行してください。</div>
             )}
-            {cameras.length === 0 && !camerasLoading && (
+            {sourceType === "camera" && cameras.length === 0 && !camerasLoading && (
               <div className="warn">
                 利用可能なカメラが見つかりません。カメラ接続と他アプリでの占有を確認し、「カメラ再検出」を押してください。
               </div>
@@ -803,8 +939,11 @@ export default function PredictPage() {
             </h2>
             {videoJob && (
               <p className="muted video-live-meta">
-                {videoJob.message ?? "-"} ／ camera #{videoJob.camera_index} / 映像FPS {videoJob.video_fps} /
-                推論FPS {videoJob.infer_fps} / 前処理 {videoJob.preprocess_mode}
+                {videoJob.message ?? "-"} ／{" "}
+                {videoJob.source_type === "url"
+                  ? `URL ${videoJob.resolved_source_url ?? videoJob.source_url ?? "-"}`
+                  : `camera #${videoJob.camera_index}`}{" "}
+                / 映像FPS {videoJob.video_fps} / 推論FPS {videoJob.infer_fps} / 前処理 {videoJob.preprocess_mode}
               </p>
             )}
             <div className="video-live-frame">

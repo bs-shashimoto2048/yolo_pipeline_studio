@@ -56,6 +56,8 @@ import type {
   VideoJobCreateRequest,
   VideoJobInfo,
   VideoJobListResponse,
+  VideoJobSettingsUpdateRequest,
+  VideoSourceListResponse,
   ProjectSummary,
   TrainJobCreateRequest,
   TrainJobInfo,
@@ -376,6 +378,18 @@ export const api = {
     return handle(await fetch(`${BASE}/projects/${name}/video-jobs`));
   },
 
+  async listVideoSources(name: string): Promise<VideoSourceListResponse> {
+    return handle(await fetch(`${BASE}/projects/${name}/video-sources`));
+  },
+
+  async deleteVideoSource(name: string, url: string): Promise<VideoSourceListResponse> {
+    return handle(
+      await fetch(`${BASE}/projects/${name}/video-sources?url=${encodeURIComponent(url)}`, {
+        method: "DELETE",
+      })
+    );
+  },
+
   async startVideoJob(name: string, req: VideoJobCreateRequest): Promise<VideoJobInfo> {
     return handle(
       await fetch(`${BASE}/projects/${name}/video-jobs`, {
@@ -389,6 +403,20 @@ export const api = {
   async getVideoJob(name: string, jobId: string): Promise<VideoJobInfo> {
     return handle(
       await fetch(`${BASE}/projects/${name}/video-jobs/${encodeURIComponent(jobId)}`)
+    );
+  },
+
+  async updateVideoJobSettings(
+    name: string,
+    jobId: string,
+    req: VideoJobSettingsUpdateRequest
+  ): Promise<VideoJobInfo> {
+    return handle(
+      await fetch(`${BASE}/projects/${name}/video-jobs/${encodeURIComponent(jobId)}/settings`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+      })
     );
   },
 

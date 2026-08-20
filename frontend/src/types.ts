@@ -612,7 +612,9 @@ export interface VideoJobCreateRequest {
   video_job_name: string;
   train_job_id: string;
   weight_type: string;
+  source_type: "camera" | "url";
   camera_index: number;
+  source_url?: string | null;
   video_fps: number;
   infer_fps: number;
   conf: number;
@@ -623,12 +625,36 @@ export interface VideoJobCreateRequest {
   overwrite: boolean;
 }
 
+export interface VideoSourceInfo {
+  url: string; // 再接続・再選択用（passwordを含む場合がある）。表示には使わない
+  masked_url: string; // 表示用（passwordをマスク済み）。一覧表示はこちらを使うこと
+  video_job_id: string | null;
+  last_verified_at: string | null;
+}
+
+export interface VideoSourceListResponse {
+  project_name: string;
+  sources: VideoSourceInfo[];
+}
+
+export interface VideoJobSettingsUpdateRequest {
+  video_fps?: number;
+  infer_fps?: number;
+  conf?: number;
+  iou?: number;
+  imgsz?: number;
+  device?: string;
+}
+
 export interface VideoJobInfo {
   project_name: string | null;
   video_job_id: string;
   train_job_id: string | null;
   weight_type: string | null;
+  source_type: string | null;
   camera_index: number | null;
+  source_url: string | null;
+  resolved_source_url: string | null;
   video_fps: number | null;
   infer_fps: number | null;
   preprocess_mode: string | null;
