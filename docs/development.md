@@ -47,6 +47,42 @@ npm run dev            # http://localhost:5173
 cd frontend && npm run build     # tsc -b && vite build
 ```
 
+## 作業者マニュアル（Operator Manual）のスクリーンショット再撮影
+
+`docs/operator-manual.md` の画面キャプチャは `frontend/scripts/capture-operator-screenshots.mjs`
+（Playwright + Chromium）で自動撮影する。UIの見た目・文言を変更した場合は、対応する画面を再撮影して
+`docs/images/operator/` を更新すること。
+
+```powershell
+# 1) バックエンドを「秘密情報を含まない隔離環境」で起動する（実運用の projects/ には触れない）
+$env:YTS_PROJECTS_ROOT = "$env:TEMP\yts_docs_scratch"
+$env:YTS_TRAIN_DRY_RUN = "1"
+$env:YTS_PREDICT_DRY_RUN = "1"
+$env:YTS_VIDEO_DRY_RUN = "1"
+$env:YTS_ONNX_DRY_RUN = "1"
+$env:YTS_SAM_DRY_RUN = "1"
+$env:YTS_CAPTURE_DRY_RUN = "1"
+uvicorn app.main:app --app-dir backend --port 8000
+
+# 2) フロントエンドを起動する（別ターミナル。ポート5173が別用途で使用中の場合は明示的に指定する）
+cd frontend
+npm run dev -- --port 5199
+
+# 3) 撮影スクリプトを実行する（さらに別ターミナル）
+cd frontend
+node scripts/capture-operator-screenshots.mjs --base-url=http://localhost:5199 --sample-dir=<合成サンプル画像フォルダ>
+```
+
+- スクリプトは秘密情報を含まないテスト用プロジェクト（`operator_docs_demo`）を毎回新規作成して操作する。
+  **実運用データが入ったプロジェクト（例: `projects/meter`）を対象に実行しないこと。**
+- `--sample-dir` には実データではない合成画像（サムネイル用のダミー画像）を用意する。
+- 出力は `docs/images/operator/` に上書き保存される。撮影後、**各画像を目視で確認し**、実IP・認証情報・
+  ローカル絶対パス・個人情報が映り込んでいないことを確認してからコミットすること
+  （URL入力欄等のplaceholderは本物の運用値を書かない。ダミー例には
+  [RFC 5737](https://www.rfc-editor.org/rfc/rfc5737) の文書用予約アドレス、例: `192.0.2.10` を使う）。
+- 撮影完了後は、バックエンドを通常設定（`YTS_PROJECTS_ROOT`未指定・DRY_RUN未設定）で再起動し、
+  実運用環境に戻すこと。
+
 ## コーディング規約
 
 - 既存のコードスタイル・命名・コメント量に合わせる（勝手な大規模リファクタリングをしない）。

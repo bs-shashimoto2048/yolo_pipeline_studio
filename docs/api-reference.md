@@ -43,8 +43,9 @@
 |---|---|---|
 | GET | `/api/projects/{name}/selection` | 選別結果取得 |
 | POST | `/api/projects/{name}/selection/run` | 選別実行（低品質・重複検出） |
-| PUT | `/api/projects/{name}/selection/images/{image_id}` | status 変更（included/excluded/review） |
+| PUT | `/api/projects/{name}/selection/images/{image_id}` | status 変更（included/review。excluded は不可） |
 | POST | `/api/projects/{name}/selection/images/{image_id}/rotate` | 画像回転（raw/processed 両方に適用） |
+| DELETE | `/api/projects/{name}/selection/images/{image_id}` | 画像を完全削除（raw/processed本体・サムネイル・ラベルを含む。元に戻せない） |
 | GET | `/api/projects/{name}/preprocess` | 前処理情報 |
 | POST | `/api/projects/{name}/preprocess/run` | 前処理実行（raw→processed） |
 | POST | `/api/projects/{name}/preprocess/preview` | Before/After プレビュー生成 |
@@ -86,11 +87,42 @@
 | POST | `/api/projects/{name}/predict-jobs/{id}/analysis` | 誤検出分析の実行 |
 | GET | `/api/projects/{name}/predict-jobs/{id}/analysis` | 分析結果取得 |
 | GET | `/api/projects/{name}/cameras` | 接続カメラ列挙 |
+| GET | `/api/projects/{name}/video-sources` | 映像取得に成功した既知URLの一覧（新しい順） |
+| DELETE | `/api/projects/{name}/video-sources?url=` | 記憶済みURLを1件削除 |
 | GET | `/api/projects/{name}/video-jobs` | 映像ジョブ一覧 |
-| POST | `/api/projects/{name}/video-jobs` | 映像推論開始 |
-| GET | `/api/projects/{name}/video-jobs/{vid}` | 詳細 |
+| POST | `/api/projects/{name}/video-jobs` | 映像推論開始（`source_type=camera\|url`。urlはRTSP/HTTP・MJPEG） |
+| GET | `/api/projects/{name}/video-jobs/{vid}` | 詳細（`resolved_source_url`等を含む） |
+| PATCH | `/api/projects/{name}/video-jobs/{vid}/settings` | 実行中ジョブのFPS/推論パラメータを再接続なしで即時変更 |
 | POST | `/api/projects/{name}/video-jobs/{vid}/stop` | 停止 |
 | GET | `/api/projects/{name}/video-jobs/{vid}/stream` | MJPEG ライブ配信 |
+
+## 撮影ソース（カメラ・URLからの静止画撮影）
+
+プロジェクト準備画面の「カメラ・URLで撮影」タブに対応する。撮影ソース（カメラ/URLの定義）はプロジェクトに保存され、セッション単位で定期撮影・都度撮影を行う。
+
+| Method | Path | 概要 |
+|---|---|---|
+| GET | `/api/projects/{name}/capture-sources` | 保存済み撮影ソース一覧 |
+| POST | `/api/projects/{name}/capture-sources` | 撮影ソース追加（label/source_type/camera_index or source_url） |
+| PATCH | `/api/projects/{name}/capture-sources/{source_id}` | 撮影ソース更新 |
+| DELETE | `/api/projects/{name}/capture-sources/{source_id}` | 撮影ソース削除 |
+| GET | `/api/projects/{name}/capture-sessions` | 撮影セッション一覧 |
+| POST | `/api/projects/{name}/capture-sessions` | 撮影セッション開始（自動撮影間隔・video_fps等） |
+| GET | `/api/projects/{name}/capture-sessions/{sid}` | セッション詳細（captured_count・次回自動撮影時刻等） |
+| POST | `/api/projects/{name}/capture-sessions/{sid}/capture` | 「今すぐ撮影」（撮影完了まで短時間待って結果を返す） |
+| POST | `/api/projects/{name}/capture-sessions/{sid}/stop` | セッション停止 |
+| GET | `/api/projects/{name}/capture-sessions/{sid}/frame` | 最新1フレーム取得（都度取得・接続を保持しないポーリング用） |
+| GET | `/api/projects/{name}/capture-sessions/{sid}/stream` | MJPEG ライブ配信（単一ソースの詳細表示用） |
+
+## SAM 補助アノテーション
+
+アノテーション画面でのポリゴン候補自動生成に対応する（`backend/requirements-sam.txt` の追加導入が必要）。
+
+| Method | Path | 概要 |
+|---|---|---|
+| GET | `/api/projects/{name}/sam/settings` | SAM設定取得 |
+| PUT | `/api/projects/{name}/sam/settings` | SAM設定保存 |
+| POST | `/api/projects/{name}/images/{image_id}/sam/propose` | クリック等からポリゴン候補を提案 |
 
 ## 実験履歴 / モデル管理 / 配布 / ONNX
 

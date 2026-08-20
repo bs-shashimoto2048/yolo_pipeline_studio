@@ -43,9 +43,15 @@ routers が対応する HTTP ステータスへ変換する。
 - フロントは 2 秒間隔でポーリングして状態・ログ・結果を取得（完了/失敗で停止）。
 - **ドライラン**用環境変数（テストや依存未導入時の疎通確認）:
   `YTS_TRAIN_DRY_RUN` / `YTS_PREDICT_DRY_RUN` / `YTS_VIDEO_DRY_RUN` / `YTS_ONNX_DRY_RUN` /
-  `YTS_SAM_DRY_RUN` / `YTS_SAM_SIMULATE_NO_DEP`。
+  `YTS_SAM_DRY_RUN` / `YTS_SAM_SIMULATE_NO_DEP` / `YTS_CAPTURE_DRY_RUN`。
 - 文字化け対策: ワーカー起動時に `PYTHONUTF8=1` / `PYTHONIOENCODING=utf-8`、
   出力を `utf-8` へ reconfigure、ログ読込は `utf-8-sig` + `errors="replace"`。
+- **同名ジョブの上書き保護**（train/video/capture 共通の考え方）: 既存ジョブディレクトリへの上書きは、
+  status が `queued`/`running` であるか、記録済み PID が生存していれば「実行中」とみなして拒否する
+  （status 更新漏れがあっても PID 生存チェックが保険になる）。削除は一旦ゴミ箱名へ rename してから
+  行う安全削除方式で、rename 自体が失敗した場合は元ディレクトリを一切変更しない。
+- **job.json の排他制御**（映像推論）: 設定 PATCH・停止・ワーカー自身の状態更新が同じ `job.json` を
+  read-modify-write するため、`job.json.lock`（排他生成方式のファイルロック）で直列化している。
 
 ## 4. データレイアウト（`projects/<name>/`）
 
@@ -61,6 +67,9 @@ projects/<name>/
 ├── runs/train/<job_id>/      # 学習ラン（job.json, train.log, weights/best.pt|last.pt, results.csv 等）
 ├── predictions/<id>/         # 推論（job.json, results.json, outputs/, preprocessed_inputs/）
 ├── video/<id>/               # 映像推論（job.json, live/latest.jpg, stop.flag）
+├── video/known_sources.json  # 映像取得に成功したURLの記憶（プロジェクト単位、認証情報を含み得る）
+├── capture/sources.json      # 撮影ソース（カメラ/URLの定義）の永続化
+├── capture/<session_id>/     # 撮影セッション（job.json, live/latest.jpg, stop.flag）。video/<id>と同じ設計
 ├── exports/onnx/<id>/        # ONNX エクスポート（model.onnx, metadata.json）
 ├── exports/packages/<id>/    # 配布パッケージ（zip）
 ├── reports/                  # レポート（JSON / Markdown）

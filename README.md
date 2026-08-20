@@ -27,20 +27,20 @@ Ultralytics YOLO を用いたコンピュータビジョンモデル開発を、
 
 サイドバーの工程順に、1つのプロジェクトを最初から最後まで進められます（全 12 工程）。
 
-1. **プロジェクト準備** — 概要 / クラス設計（色付き）/ 画像取り込み（フォルダ一括・個別）
+1. **プロジェクト準備** — 概要 / クラス設計（色付き）/ 画像取り込み（フォルダ一括・個別・**カメラ/ネットワークカメラURLからの撮影**）
 2. **画像選別** — 低品質（暗い・明るい・ブレ・小さい）・重複を検出し included/excluded/review 管理（非破壊）
 3. **前処理** — リサイズ・明るさ/コントラスト・グレースケール・2値化・シャープ・CLAHE（`raw`→`processed`、非破壊）
 4. **アノテーション** — BBOX / ポリゴン（輪郭）作成・編集、**SAM 補助**、ズーム/パン、EXIF 対応
 5. **データセット作成** — train/val/test 分割・`data.yaml` 生成（作成前にラベル品質チェック）
 6. **学習** — Ultralytics YOLO 学習（データ拡張プリセットを同画面で設定）
 7. **評価** — results.csv サマリー・推移グラフ・成果物画像・メトリクス表
-8. **推論テスト** — 画像/映像（カメラ）推論、結果画像と検出一覧
+8. **推論テスト** — 画像推論、**映像（ローカルカメラ/ネットワークカメラURL）へのリアルタイム推論**、結果画像と検出一覧
 9. **誤検出分析** — GT と予測の IoU 比較（TP/FP/FN/class_mismatch）、クラス別統計
 10. **実験履歴** — 学習ジョブ単位で条件と結果を比較
 11. **モデル管理** — best/last の一覧・採用設定・配布パッケージ・ONNX エクスポート
 12. **レポート** — 全工程を集約した JSON / Markdown レポート出力
 
-詳細な設計は [`docs/`](docs/) を参照してください。
+実際の画面操作は [`docs/operator-manual.md`](docs/operator-manual.md)、詳細な設計は [`docs/`](docs/) を参照してください。
 
 ---
 
@@ -191,6 +191,8 @@ npm run build
 
 ## ドキュメント
 
+- [`docs/README.md`](docs/README.md) — ドキュメント一覧（作業者向け/開発者向けの導線）
+- [`docs/operator-manual.md`](docs/operator-manual.md) — **作業者向け**: 実UIのスクリーンショット付き操作マニュアル
 - [`docs/architecture.md`](docs/architecture.md) — システム構成・データレイアウト・ワーカー方式・設計方針
 - [`docs/api-reference.md`](docs/api-reference.md) — REST API エンドポイント一覧
 - [`docs/development.md`](docs/development.md) — 開発セットアップ・規約・テスト・拡張手順

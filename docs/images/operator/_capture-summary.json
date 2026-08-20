@@ -1,0 +1,157 @@
+[
+  {
+    "file": "01-projects-list.png",
+    "ok": true,
+    "note": "入口: プロジェクト一覧+新規作成フォーム"
+  },
+  {
+    "file": "01b-projects-list-after-create.png",
+    "ok": true,
+    "note": "プロジェクト作成後の一覧（「開く」を押して入る）"
+  },
+  {
+    "file": "02-setup-overview-classes.png",
+    "ok": true,
+    "note": "プロジェクト準備: 概要+クラス設計（初期状態）"
+  },
+  {
+    "file": "03-setup-classes-saved.png",
+    "ok": true,
+    "note": "クラス設計: 追加・保存後"
+  },
+  {
+    "file": "04-setup-images-uploaded.png",
+    "ok": true,
+    "note": "画像取り込み: 個別アップロード結果+登録画像一覧"
+  },
+  {
+    "file": "05-setup-capture-tab.png",
+    "ok": true,
+    "note": "撮影ソース（カメラ/URL）タブ: 初期状態（未登録）"
+  },
+  {
+    "file": "05b-setup-capture-add-form.png",
+    "ok": true,
+    "note": "撮影ソース新規登録フォーム（例示用ダミーURLを入力。placeholder修正後で実IP非表示）"
+  },
+  {
+    "file": "06-setup-folder-import-tab.png",
+    "ok": true,
+    "note": "フォルダ取り込みタブ（パス未入力の初期状態）"
+  },
+  {
+    "file": "07-selection-before-run.png",
+    "ok": true,
+    "note": "画像選別: 実行前"
+  },
+  {
+    "file": "08-selection-after-run.png",
+    "ok": true,
+    "note": "画像選別: 実行後（included/excluded/review）"
+  },
+  {
+    "file": "09-preprocess-settings.png",
+    "ok": true,
+    "note": "前処理設定画面（実行前）"
+  },
+  {
+    "file": "10-preprocess-after-run.png",
+    "ok": true,
+    "note": "前処理: 実行後（processed情報）"
+  },
+  {
+    "file": "11-annotate-initial.png",
+    "ok": true,
+    "note": "アノテーション画面: 初期状態（画像+クラス一覧）"
+  },
+  {
+    "file": "12-annotate-with-box.png",
+    "ok": true,
+    "note": "アノテーション: BBOX作成後"
+  },
+  {
+    "file": "13-dataset-form.png",
+    "ok": true,
+    "note": "データセット作成フォーム（ラベル品質チェック含む）"
+  },
+  {
+    "file": "14-dataset-created.png",
+    "ok": true,
+    "note": "データセット作成後（一覧に追加）"
+  },
+  {
+    "file": "15-train-form.png",
+    "ok": true,
+    "note": "学習ジョブ開始フォーム+データ拡張プリセット"
+  },
+  {
+    "file": "16-train-job-started.png",
+    "ok": true,
+    "note": "学習ジョブ開始直後（一覧・状態）"
+  },
+  {
+    "file": "17-train-job-completed.png",
+    "ok": true,
+    "note": "学習ジョブ完了後の状態表示"
+  },
+  {
+    "file": "18-evaluate.png",
+    "ok": true,
+    "note": "学習成果物・評価サマリー"
+  },
+  {
+    "file": "19-models-list.png",
+    "ok": true,
+    "note": "モデル管理: best/last一覧"
+  },
+  {
+    "file": "20-infer-image-form.png",
+    "ok": true,
+    "note": "推論テスト: 画像モード フォーム"
+  },
+  {
+    "file": "21-infer-image-result.png",
+    "ok": true,
+    "note": "推論テスト: 画像モード 実行結果"
+  },
+  {
+    "file": "22-infer-video-camera-form.png",
+    "ok": true,
+    "note": "推論テスト: 映像モード（カメラ）フォーム"
+  },
+  {
+    "file": "23-infer-video-url-form.png",
+    "ok": true,
+    "note": "推論テスト: 映像モード（URL）フォーム（例示用ダミーURLを入力。placeholderの実IPが映らないよう上書き）"
+  },
+  {
+    "file": "24-analysis.png",
+    "ok": true,
+    "note": "誤検出分析画面"
+  },
+  {
+    "file": "25-experiments.png",
+    "ok": true,
+    "note": "実験履歴画面"
+  },
+  {
+    "file": "26-reports-form.png",
+    "ok": true,
+    "note": "レポート生成フォーム"
+  },
+  {
+    "file": "27-reports-generated.png",
+    "ok": true,
+    "note": "レポート生成後の一覧"
+  },
+  {
+    "file": "28-error-duplicate-project.png",
+    "ok": true,
+    "note": "エラー例: 既存プロジェクト名での作成失敗"
+  },
+  {
+    "file": "29-error-duplicate-job.png",
+    "ok": true,
+    "note": "エラー例: 同名学習ジョブの重複（409）"
+  }
+]
