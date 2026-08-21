@@ -177,6 +177,12 @@ export default function AnnotatePage() {
   >(null);
   // segment: 頂点ドラッグ中の対象
   const vertexDrag = useRef<{ polyId: string; index: number } | null>(null);
+  // 右ドラッグでのパン操作中の状態（開始時のポインタpxとpanを保持）
+  const rightDrag = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(
+    null
+  );
+  // 右ボタンが「ドラッグ（パン）」だったか「クリック」だったかをcontextmenu側で判定するためのフラグ
+  const rightDragMoved = useRef(false);
   // 頂点ホバー時のカーソル点滅タイマー
   const blinkTimer = useRef<number | null>(null);
   const [, force] = useState(0);
@@ -949,13 +955,63 @@ export default function AnnotatePage() {
   }
 
   function onSegContextMenu(e: Konva.KonvaEventObject<MouseEvent>) {
-    if (!isSeg || segMode !== "sam_point") return;
+    // ブラウザの右クリックメニューは常に抑止（右ドラッグでのパン操作と衝突するため）
     e.evt.preventDefault();
+    if (rightDragMoved.current) {
+      // 直前の右ボタン操作はドラッグ（パン）だったので、クリックとしては扱わない
+      rightDragMoved.current = false;
+      return;
+    }
+    if (!isSeg || segMode !== "sam_point") return;
     const stage = e.target.getStage();
     const pos = stage?.getPointerPosition();
     if (pos) {
       setNegPoints((p) => [...p, normPt(pos.x, pos.y)]);
     }
+  }
+
+  // ============ 右ドラッグでのパン（拡大時に画像内を移動） ============
+
+  function onStageMouseDown(e: Konva.KonvaEventObject<MouseEvent>) {
+    if (e.evt.button === 2) {
+      e.evt.preventDefault();
+      const stage = e.target.getStage();
+      const pos = stage?.getPointerPosition();
+      rightDragMoved.current = false;
+      if (pos) {
+        rightDrag.current = { startX: pos.x, startY: pos.y, panX: pan.x, panY: pan.y };
+        setCursor("grabbing");
+      }
+      return;
+    }
+    (isSeg ? onSegDown : onBoxDown)(e);
+  }
+
+  function onStageMouseMove(e: Konva.KonvaEventObject<MouseEvent>) {
+    if (rightDrag.current) {
+      const stage = e.target.getStage();
+      const pos = stage?.getPointerPosition();
+      if (pos) {
+        const dx = pos.x - rightDrag.current.startX;
+        const dy = pos.y - rightDrag.current.startY;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) rightDragMoved.current = true;
+        if (zoom > 1) {
+          setPan(clampPan(rightDrag.current.panX + dx, rightDrag.current.panY + dy, zoom));
+        }
+      }
+      setCursor("grabbing");
+      return;
+    }
+    (isSeg ? onSegMove : onBoxMove)(e);
+  }
+
+  function onStageMouseUp(_e: Konva.KonvaEventObject<MouseEvent>) {
+    if (rightDrag.current) {
+      rightDrag.current = null;
+      setCursor(zoom > 1 ? "grab" : "default");
+      return;
+    }
+    (isSeg ? onSegUp : endBoxInteraction)();
   }
 
   async function runSam() {
@@ -1431,13 +1487,14 @@ export default function AnnotatePage() {
             ref={stageRef}
             width={stageW}
             height={stageH}
-            onMouseDown={isSeg ? onSegDown : onBoxDown}
-            onMouseMove={isSeg ? onSegMove : onBoxMove}
-            onMouseUp={isSeg ? onSegUp : endBoxInteraction}
+            onMouseDown={onStageMouseDown}
+            onMouseMove={onStageMouseMove}
+            onMouseUp={onStageMouseUp}
             onDblClick={isSeg && segMode === "manual" ? finalizeDraft : undefined}
             onContextMenu={onSegContextMenu}
             onMouseLeave={() => {
-              if (!isSeg) endBoxInteraction();
+              if (!isSeg && !rightDrag.current) endBoxInteraction();
+              rightDrag.current = null;
               vertexDrag.current = null;
               stopVertexBlink();
               setCursor("default");
