@@ -2086,6 +2086,10 @@ pre {
   background: var(--panel);
   box-shadow: var(--shadow-card);
   overflow: hidden;
+  transition: width 0.15s ease;
+}
+.annotate-tasklist.collapsed {
+  width: 30px;
 }
 .tasklist-head {
   padding: 8px 10px;
@@ -2097,6 +2101,29 @@ pre {
   justify-content: space-between;
   align-items: baseline;
   gap: 8px;
+}
+.annotate-tasklist.collapsed .tasklist-head {
+  padding: 8px 4px;
+  justify-content: center;
+}
+.tasklist-toggle {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  line-height: 1;
+  font-size: 0.7rem;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: none;
+}
+.tasklist-toggle:hover {
+  color: var(--text);
+  background: var(--primary-soft);
+  filter: none;
+  transform: none;
 }
 .tasklist-sub {
   font-size: 0.68rem;
@@ -2186,9 +2213,12 @@ pre {
   .annotate-side {
     width: 100%;
   }
-  /* タスク一覧は横スクロールのサムネイル帯にする */
+  /* タスク一覧は横スクロールのサムネイル帯にする（折り畳み時は幅を維持） */
   .annotate-tasklist {
     width: 100%;
+  }
+  .annotate-tasklist.collapsed {
+    width: 30px;
   }
   .tasklist-scroll {
     flex-direction: row;

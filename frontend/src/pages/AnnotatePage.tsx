@@ -185,6 +185,14 @@ export default function AnnotatePage() {
   // 表示中の画像に合わせて左サイドバーを自動スクロールするための参照
   const activeTaskRef = useRef<HTMLButtonElement>(null);
 
+  // 左サイドバー（画像タスク一覧）の折り畳み状態。ブラウザに保存して次回も維持する。
+  const [taskListCollapsed, setTaskListCollapsed] = useState(
+    () => localStorage.getItem("yts_annotate_tasklist_collapsed") === "1"
+  );
+  useEffect(() => {
+    localStorage.setItem("yts_annotate_tasklist_collapsed", taskListCollapsed ? "1" : "0");
+  }, [taskListCollapsed]);
+
   // 表示サイズ（ブラウザ幅に追従）
   const wrapRef = useRef<HTMLDivElement>(null);
   const [wrapW, setWrapW] = useState(800);
@@ -1336,16 +1344,30 @@ export default function AnnotatePage() {
       </div>
 
       <div className="annotate-body">
-        {/* 左: 画像タスク一覧（サムネ＋アノテ状況、Label Studio風） */}
-        <div className="annotate-tasklist">
+        {/* 左: 画像タスク一覧（サムネ＋アノテ状況、Label Studio風）。折り畳み可能。 */}
+        <div className={"annotate-tasklist" + (taskListCollapsed ? " collapsed" : "")}>
           <div className="tasklist-head">
-            画像（{visibleImages.length}）
-            <span className="tasklist-sub">
-              済 {visibleImages.filter((im) => im.has_label).length} / 未{" "}
-              {visibleImages.filter((im) => !im.has_label).length}
-            </span>
+            {!taskListCollapsed && (
+              <>
+                画像（{visibleImages.length}）
+                <span className="tasklist-sub">
+                  済 {visibleImages.filter((im) => im.has_label).length} / 未{" "}
+                  {visibleImages.filter((im) => !im.has_label).length}
+                </span>
+              </>
+            )}
+            <button
+              type="button"
+              className="tasklist-toggle"
+              onClick={() => setTaskListCollapsed((c) => !c)}
+              title={taskListCollapsed ? "画像一覧を開く" : "画像一覧を折り畳む"}
+              aria-label={taskListCollapsed ? "画像一覧を開く" : "画像一覧を折り畳む"}
+              aria-expanded={!taskListCollapsed}
+            >
+              {taskListCollapsed ? "▶" : "◀"}
+            </button>
           </div>
-          <div className="tasklist-scroll">
+          {!taskListCollapsed && <div className="tasklist-scroll">
             {visibleImages.map((im, i) => {
               const st = stemOf(im.filename);
               const isCurrent = i === current;
@@ -1390,7 +1412,7 @@ export default function AnnotatePage() {
               );
             })}
             {visibleImages.length === 0 && <div className="muted" style={{ padding: 8 }}>画像なし</div>}
-          </div>
+          </div>}
           {/* カードホバー時の拡大プレビュー（body直下に描画） */}
           {taskPreview &&
             createPortal(
