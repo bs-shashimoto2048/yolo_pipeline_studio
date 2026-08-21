@@ -9,6 +9,14 @@ export default function ProjectLayout() {
   const { name = "" } = useParams();
   const [task, setTask] = useState<ProjectTask | null>(null);
 
+  // 左の工程メニューの折り畳み状態。ブラウザに保存して次回も維持する。
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem("yts_steps_collapsed") === "1"
+  );
+  useEffect(() => {
+    localStorage.setItem("yts_steps_collapsed", collapsed ? "1" : "0");
+  }, [collapsed]);
+
   useEffect(() => {
     setTask(null);
     api.getProject(name).then((p) => setTask((p.task ?? "detect") as ProjectTask)).catch(() => {});
@@ -16,13 +24,25 @@ export default function ProjectLayout() {
 
   return (
     <div className="project-layout">
-      <aside className="steps">
+      <aside className={"steps" + (collapsed ? " collapsed" : "")}>
         <div className="steps-head">
-          <NavLink to="/" className="back-link">
-            ← プロジェクト一覧
-          </NavLink>
-          <div className="project-name">{name}</div>
-          {task && (
+          <div className="steps-head-row">
+            <NavLink to="/" className="back-link" title="プロジェクト一覧へ">
+              {collapsed ? "←" : "← プロジェクト一覧"}
+            </NavLink>
+            <button
+              type="button"
+              className="steps-toggle"
+              onClick={() => setCollapsed((c) => !c)}
+              title={collapsed ? "メニューを開く" : "メニューを折り畳む"}
+              aria-label={collapsed ? "メニューを開く" : "メニューを折り畳む"}
+              aria-expanded={!collapsed}
+            >
+              {collapsed ? "▶" : "◀"}
+            </button>
+          </div>
+          {!collapsed && <div className="project-name">{name}</div>}
+          {!collapsed && task && (
             <span className={"side-task-badge " + (task === "segment" ? "seg" : "det")}>
               {task === "segment" ? "◨ Segmentation" : "▭ BBOX"}
             </span>
@@ -36,10 +56,11 @@ export default function ProjectLayout() {
               className={({ isActive }) =>
                 "step" + (isActive ? " active" : "")
               }
+              title={collapsed ? s.label : undefined}
             >
               <span className="step-no">{s.no}</span>
-              <span className="step-label">{s.label}</span>
-              {!s.implemented && <span className="badge">骨組み</span>}
+              {!collapsed && <span className="step-label">{s.label}</span>}
+              {!collapsed && !s.implemented && <span className="badge">骨組み</span>}
             </NavLink>
           ))}
         </nav>
