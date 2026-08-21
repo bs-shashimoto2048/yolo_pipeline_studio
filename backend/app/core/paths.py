@@ -140,6 +140,14 @@ def video_job_dir(name: str, video_job_id: str) -> Path:
     return video_jobs_dir(name) / video_job_id
 
 
+def capture_sessions_dir(name: str) -> Path:
+    return project_dir(name) / "capture"
+
+
+def capture_session_dir(name: str, session_id: str) -> Path:
+    return capture_sessions_dir(name) / session_id
+
+
 def selection_path(name: str) -> Path:
     return project_dir(name) / "selection" / "selection.json"
 

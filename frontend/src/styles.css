@@ -2546,8 +2546,194 @@ pre {
 .import-method:nth-of-type(2) {
   border-left-color: var(--cyan);
 }
+/* 取り込み方法タブ（フォルダ/個別/撮影）: 選択中の1枚だけ表示するため色をクラスで明示指定 */
+.import-method.im-method-folder {
+  border-left-color: var(--primary);
+}
+.import-method.im-method-upload {
+  border-left-color: var(--cyan);
+}
+.import-method.im-method-capture {
+  border-left-color: var(--warn);
+}
 .import-method .ds-group-title {
   margin-top: 0;
+}
+/* 取り込み方法の切り替えタブ */
+.im-method-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 10px;
+  flex-wrap: wrap;
+}
+/* プロジェクト準備の中に埋め込むため、映像推論画面よりやや控えめな高さにする */
+.im-capture-frame {
+  min-height: 30vh;
+  position: relative; /* 右上のカウントダウンバッジの基準位置 */
+}
+.im-capture-frame .video-live-img {
+  max-height: 44vh;
+}
+/* 自動撮影の次回撮影までのカウントダウン（ライブプレビュー右上） */
+.capture-countdown-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  background: rgba(7, 31, 77, 0.72);
+  color: #fff;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  pointer-events: none;
+  backdrop-filter: blur(2px);
+}
+/* 複数撮影ソース管理（カメラ・URLで撮影タブ） */
+/* ツールバー: 間隔設定・一括開始/停止・ソース追加を1行に整理し、ボタンの視覚的な重みを揃える
+   （全て開始/追加ボタンが .predict-start の width:100% で他ボタンと不釣り合いに巨大化しないよう、
+   通常サイズのボタンのみを使う） */
+.capture-toolbar {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin: 8px 0 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.capture-toolbar .field {
+  min-width: 170px;
+  margin: 0;
+}
+.capture-toolbar-actions {
+  display: flex;
+  gap: 8px;
+}
+.capture-toolbar-spacer {
+  flex: 1 1 auto;
+}
+.capture-sources-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+.capture-source-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+  padding: 10px;
+}
+.capture-source-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.capture-source-label {
+  font-weight: 700;
+  font-size: 0.86rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.capture-source-preview {
+  position: relative; /* カウントダウンバッジの基準位置 */
+  min-height: unset;
+  height: 130px;
+}
+.capture-source-preview .video-live-img {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: cover;
+}
+/* ライブプレビューをHoverImagePreviewに差し替え、カーソルホバー時のみ拡大表示する */
+.capture-source-preview .hover-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.capture-source-preview .hover-img > img:not(.hover-img-preview) {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  cursor: zoom-in;
+}
+.capture-source-preview .video-live-placeholder {
+  padding: 8px;
+  font-size: 0.78rem;
+}
+.capture-source-meta {
+  font-size: 0.76rem;
+  margin: 0;
+}
+/* 開始/停止・今すぐ撮影は主操作なので目立たせ、カード幅に合わせて均等割り */
+.capture-source-actions {
+  display: flex;
+  gap: 6px;
+}
+.capture-source-actions button {
+  flex: 1 1 0;
+  padding: 6px 8px;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+/* 編集/削除は使用頻度が低い設定操作なので、リンク風の控えめな見た目にする */
+.capture-source-manage {
+  display: flex;
+  gap: 14px;
+  margin-top: 2px;
+}
+.capture-source-manage button {
+  background: none;
+  box-shadow: none;
+  border: none;
+  padding: 0;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.capture-source-manage button:hover:not(:disabled) {
+  color: var(--primary);
+  background: none;
+}
+.capture-source-manage button:disabled {
+  text-decoration: none;
+  opacity: 0.4;
+}
+.capture-source-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* ソース追加カード: 他のソースカードと同じ大きさに馴染ませ、破線で「まだ登録されていない」ことを示す */
+.capture-source-add {
+  border-style: dashed;
+  border-color: var(--primary);
+  background: var(--panel);
+  gap: 8px;
+}
+.capture-add-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.76rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+.capture-add-field input,
+.capture-add-field select {
+  font-size: 0.86rem;
+  font-weight: 400;
+  color: var(--text);
 }
 /* 補足は下端へ寄せて2カードの高さバランスを整える */
 .import-method .im-hint {
@@ -2595,6 +2781,13 @@ pre {
   font-size: 0.78rem;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+/* 登録画像一覧を固定高さのスクロール領域にし、画像が増えてもページ全体の高さが
+   変わらないようにする（自動撮影で画像が随時追加されるとページが揺れるため）。 */
+.im-registered-scroll {
+  max-height: 46vh;
+  overflow-y: auto;
+  padding-right: 4px; /* スクロールバー分でサムネイルが切れないように */
 }
 
 /* ===== データセット作成: 作成フォーム(4) / ラベル品質チェック(6) ===== */

@@ -666,6 +666,80 @@ export interface VideoJobInfo {
   stream_url: string | null;
 }
 
+// --- カメラ/URL撮影（プロジェクト準備・画像取り込み） ---
+export interface CaptureSessionCreateRequest {
+  session_name: string;
+  source_type: "camera" | "url";
+  camera_index: number;
+  source_url?: string | null;
+  video_fps: number;
+  interval_minutes?: number | null;
+  overwrite: boolean;
+}
+
+export interface CaptureSessionInfo {
+  project_name: string | null;
+  session_id: string;
+  source_type: string | null;
+  camera_index: number | null;
+  source_url: string | null;
+  resolved_source_url: string | null;
+  video_fps: number | null;
+  interval_minutes: number | null;
+  status: string;
+  message: string | null;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  captured_count: number;
+  last_captured_at: string | null;
+  last_captured_filename: string | null;
+  next_auto_capture_at: string | null;
+  stream_url: string | null;
+}
+
+export interface CaptureSessionListResponse {
+  project_name: string;
+  sessions: CaptureSessionInfo[];
+}
+
+export interface CaptureNowResult {
+  status: "captured" | "pending" | "failed";
+  filename: string | null;
+  captured_at: string | null;
+  captured_count: number;
+  message: string | null;
+}
+
+// 撮影ソース（カメラ/URLの定義。プロジェクトに永続化して再利用する）
+export interface CaptureSourceCreateRequest {
+  label: string;
+  source_type: "camera" | "url";
+  camera_index: number;
+  source_url?: string | null;
+}
+
+export interface CaptureSourceUpdateRequest {
+  label?: string;
+  source_type?: "camera" | "url";
+  camera_index?: number;
+  source_url?: string | null;
+}
+
+export interface CaptureSourceInfo {
+  source_id: string;
+  label: string;
+  source_type: string;
+  camera_index: number | null;
+  source_url: string | null; // 編集フォーム再入力用（passwordを含む場合がある）。表示には使わない
+  masked_source_url: string | null; // 表示用（passwordをマスク済み）
+}
+
+export interface CaptureSourceListResponse {
+  project_name: string;
+  sources: CaptureSourceInfo[];
+}
+
 export interface VideoJobListResponse {
   project_name: string;
   jobs: VideoJobInfo[];

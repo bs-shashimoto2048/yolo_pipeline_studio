@@ -53,6 +53,14 @@ import type {
   PredictLogResponse,
   PredictResultsResponse,
   CameraListResponse,
+  CaptureNowResult,
+  CaptureSessionCreateRequest,
+  CaptureSessionInfo,
+  CaptureSessionListResponse,
+  CaptureSourceCreateRequest,
+  CaptureSourceInfo,
+  CaptureSourceListResponse,
+  CaptureSourceUpdateRequest,
   VideoJobCreateRequest,
   VideoJobInfo,
   VideoJobListResponse,
@@ -367,6 +375,91 @@ export const api = {
         `${BASE}/projects/${name}/predict-jobs/${encodeURIComponent(jobId)}/results`
       )
     );
+  },
+
+  // --- カメラ/URL撮影（プロジェクト準備・画像取り込み） ---
+  async listCaptureSources(name: string): Promise<CaptureSourceListResponse> {
+    return handle(await fetch(`${BASE}/projects/${name}/capture-sources`));
+  },
+
+  async addCaptureSource(name: string, req: CaptureSourceCreateRequest): Promise<CaptureSourceInfo> {
+    return handle(
+      await fetch(`${BASE}/projects/${name}/capture-sources`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+      })
+    );
+  },
+
+  async updateCaptureSource(
+    name: string,
+    sourceId: string,
+    req: CaptureSourceUpdateRequest
+  ): Promise<CaptureSourceInfo> {
+    return handle(
+      await fetch(`${BASE}/projects/${name}/capture-sources/${encodeURIComponent(sourceId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+      })
+    );
+  },
+
+  async deleteCaptureSource(name: string, sourceId: string): Promise<void> {
+    const res = await fetch(`${BASE}/projects/${name}/capture-sources/${encodeURIComponent(sourceId)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      throw new Error(detail.detail ?? `HTTP ${res.status}`);
+    }
+  },
+
+  async listCaptureSessions(name: string): Promise<CaptureSessionListResponse> {
+    return handle(await fetch(`${BASE}/projects/${name}/capture-sessions`));
+  },
+
+  async startCaptureSession(name: string, req: CaptureSessionCreateRequest): Promise<CaptureSessionInfo> {
+    return handle(
+      await fetch(`${BASE}/projects/${name}/capture-sessions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+      })
+    );
+  },
+
+  async getCaptureSession(name: string, sid: string): Promise<CaptureSessionInfo> {
+    return handle(
+      await fetch(`${BASE}/projects/${name}/capture-sessions/${encodeURIComponent(sid)}`)
+    );
+  },
+
+  async captureNow(name: string, sid: string): Promise<CaptureNowResult> {
+    return handle(
+      await fetch(`${BASE}/projects/${name}/capture-sessions/${encodeURIComponent(sid)}/capture`, {
+        method: "POST",
+      })
+    );
+  },
+
+  async stopCaptureSession(name: string, sid: string): Promise<CaptureSessionInfo> {
+    return handle(
+      await fetch(`${BASE}/projects/${name}/capture-sessions/${encodeURIComponent(sid)}/stop`, {
+        method: "POST",
+      })
+    );
+  },
+
+  captureStreamUrl(name: string, sid: string): string {
+    return `${BASE}/projects/${name}/capture-sessions/${encodeURIComponent(sid)}/stream`;
+  },
+
+  // 都度取得の単一フレーム（複数ソースの一覧表示ではこちらをポーリングする。
+  // MJPEG(stream)を同時に何本も張るとブラウザの同時接続数上限に達するため）。
+  captureFrameUrl(name: string, sid: string): string {
+    return `${BASE}/projects/${name}/capture-sessions/${encodeURIComponent(sid)}/frame`;
   },
 
   // --- 映像（カメラ）推論 ---

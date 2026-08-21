@@ -1,13 +1,16 @@
 // 画像取り込みパネル（プロジェクト準備画面のセクション）。
-// フォルダ単位の一括取り込み（主導線）＋ 個別アップロード（従来）＋ 登録画像一覧。
+// 取り込み方法をタブで切り替え: フォルダ一括取り込み／個別アップロード／カメラ・URLで撮影。
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api/client";
+import CaptureSourcesPanel from "./CaptureSourcesPanel";
 import HoverImagePreview from "./HoverImagePreview";
 import type { FolderImportResponse, ImageInfo, UploadResponse } from "../types";
 
 const ALL_EXTS = [".jpg", ".jpeg", ".png", ".bmp", ".webp"];
 const DEFAULT_EXTS = [".jpg", ".jpeg", ".png"];
+
+type Method = "folder" | "upload" | "capture";
 
 function extOf(filename: string): string {
   const m = /\.[^./\\]+$/.exec(filename);
@@ -24,6 +27,7 @@ export default function ImagesPanel() {
   const { name = "" } = useParams();
   const [images, setImages] = useState<ImageInfo[]>([]);
   const [error, setError] = useState("");
+  const [method, setMethod] = useState<Method>("folder");
 
   const [picked, setPicked] = useState<File[]>([]);
   const [exts, setExts] = useState<Set<string>>(new Set(DEFAULT_EXTS));
@@ -45,6 +49,7 @@ export default function ImagesPanel() {
 
   useEffect(() => {
     reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name]);
 
   const { target, excluded } = useMemo(() => {
@@ -112,9 +117,20 @@ export default function ImagesPanel() {
     <section className="card">
       <h2>画像取り込み</h2>
 
-      {/* 取り込み方法を2つのコンテナに分けて表示 */}
-      <div className="import-methods">
-        <div className="import-method">
+      <div className="im-method-tabs">
+        <button type="button" className={method === "folder" ? "" : "secondary"} onClick={() => setMethod("folder")}>
+          フォルダ取り込み
+        </button>
+        <button type="button" className={method === "upload" ? "" : "secondary"} onClick={() => setMethod("upload")}>
+          個別アップロード
+        </button>
+        <button type="button" className={method === "capture" ? "" : "secondary"} onClick={() => setMethod("capture")}>
+          カメラ・URLで撮影
+        </button>
+      </div>
+
+      {method === "folder" && (
+        <div className="import-method im-method-folder">
           <div className="ds-group-title">
             フォルダ取り込み<span className="im-badge">推奨</span>
           </div>
@@ -161,8 +177,10 @@ export default function ImagesPanel() {
             </div>
           )}
         </div>
+      )}
 
-        <div className="import-method">
+      {method === "upload" && (
+        <div className="import-method im-method-upload">
           <div className="ds-group-title">個別アップロード</div>
           <p className="muted" style={{ fontSize: "0.78rem", margin: "0 0 8px" }}>
             少数の画像を直接選んで追加します（jpg / jpeg / png / bmp / webp）。
@@ -188,7 +206,14 @@ export default function ImagesPanel() {
             </div>
           )}
         </div>
-      </div>
+      )}
+
+      {method === "capture" && (
+        <div className="import-method im-method-capture">
+          <div className="ds-group-title">カメラ・URLで撮影</div>
+          <CaptureSourcesPanel name={name} onCaptured={reload} />
+        </div>
+      )}
 
       {error && <div className="error">{error}</div>}
 
@@ -196,27 +221,29 @@ export default function ImagesPanel() {
         <div className="ds-group-title" style={{ margin: 0 }}>登録画像</div>
         <span className="chip-count">{images.length} 枚</span>
       </div>
-      <div className="thumb-grid im-grid">
-        {images.map((img) => (
-          <figure key={img.filename} className="thumb">
-            <HoverImagePreview
-              thumbSrc={api.thumbnailUrl(name, img.filename)}
-              fullSrc={api.imageUrl(name, img.filename)}
-              alt={img.filename}
-            />
-            <figcaption>
-              <div className="thumb-name" title={img.filename}>
-                {img.filename}
-              </div>
-              <div className="muted">
-                {img.width}×{img.height}
-                {img.low_resolution && <span className="warn"> 低解像度</span>}
-                {img.has_label && <span className="success"> ラベル有</span>}
-              </div>
-            </figcaption>
-          </figure>
-        ))}
-        {images.length === 0 && <p className="muted">画像がありません。</p>}
+      <div className="im-registered-scroll">
+        <div className="thumb-grid im-grid">
+          {images.map((img) => (
+            <figure key={img.filename} className="thumb">
+              <HoverImagePreview
+                thumbSrc={api.thumbnailUrl(name, img.filename)}
+                fullSrc={api.imageUrl(name, img.filename)}
+                alt={img.filename}
+              />
+              <figcaption>
+                <div className="thumb-name" title={img.filename}>
+                  {img.filename}
+                </div>
+                <div className="muted">
+                  {img.width}×{img.height}
+                  {img.low_resolution && <span className="warn"> 低解像度</span>}
+                  {img.has_label && <span className="success"> ラベル有</span>}
+                </div>
+              </figcaption>
+            </figure>
+          ))}
+          {images.length === 0 && <p className="muted">画像がありません。</p>}
+        </div>
       </div>
     </section>
   );

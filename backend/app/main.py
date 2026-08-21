@@ -13,6 +13,7 @@ from .routers import (
     analysis,
     annotations,
     augmentation,
+    capture,
     datasets,
     evaluation,
     experiments,
@@ -60,6 +61,7 @@ def health() -> MessageResponse:
 # 実働ルーター
 app.include_router(projects.router)
 app.include_router(images.router)
+app.include_router(capture.router)
 app.include_router(annotations.router)
 app.include_router(label_validation.router)
 app.include_router(datasets.router)
