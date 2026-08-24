@@ -2521,9 +2521,11 @@ pre {
 .sel-counts {
   margin-bottom: 8px;
 }
-/* 画像領域を主役に。推論テストと同じ cover・直角タイル */
+/* 画像領域を主役に。推論テストと同じ cover・直角タイル。
+   表示サイズはチェック設定のスライダーで --sel-thumb-w を変更して調整する
+   （既定210pxは変更前と同じ大きさ。高さは元の比率(160/210)を保って追従させる）。 */
 .sel-grid {
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(var(--sel-thumb-w, 210px), 1fr));
 }
 .sel-grid .thumb {
   position: relative;
@@ -2531,10 +2533,36 @@ pre {
   border-top-width: 3px;
 }
 .sel-grid .thumb .hover-img > img:not(.hover-img-preview) {
-  height: 160px;
+  height: calc(var(--sel-thumb-w, 210px) * 0.762);
   object-fit: cover;
   background: none;
   image-orientation: from-image;
+}
+/* スキャン条件と「表示サイズ」（見た目のみ）を視覚的に区別する縦区切り */
+.sel-settings-sep {
+  align-self: stretch;
+  width: 1px;
+  background: var(--border);
+  margin: 2px 2px;
+}
+.sel-size-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-direction: row;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.sel-size-field input[type="range"] {
+  width: 140px;
+}
+.sel-size-field .sel-size-value {
+  font-size: 0.78rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 3.2em;
 }
 /* ステータスで上枠を色分け（included=緑 / excluded=赤 / review=橙） */
 .sel-card.status-included {

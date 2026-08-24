@@ -6,6 +6,9 @@ import { api } from "../api/client";
 import HoverImagePreview from "../components/HoverImagePreview";
 import type { SelectionItem, SelectionSummary } from "../types";
 
+const THUMB_SIZE_STORAGE_KEY = "yts_selection_thumb_size";
+const DEFAULT_THUMB_SIZE = 210; // 変更前の表示サイズ（既定値）
+
 type Filter = "all" | "included" | "review" | "duplicate" | "small" | "dark" | "bright" | "blur";
 
 const FILTERS: { key: Filter; label: string }[] = [
@@ -28,6 +31,15 @@ export default function SelectionPage() {
   const [darkT, setDarkT] = useState(30);
   const [brightT, setBrightT] = useState(240);
   const [detectDup, setDetectDup] = useState(true);
+  // 表示サイズ（スキャン結果には影響しない、見た目だけの設定。ブラウザに保存して次回も維持する）
+  const [thumbSize, setThumbSize] = useState<number>(() => {
+    const saved = Number(localStorage.getItem(THUMB_SIZE_STORAGE_KEY));
+    return Number.isFinite(saved) && saved >= 120 ? saved : DEFAULT_THUMB_SIZE;
+  });
+
+  useEffect(() => {
+    localStorage.setItem(THUMB_SIZE_STORAGE_KEY, String(thumbSize));
+  }, [thumbSize]);
 
   const [items, setItems] = useState<SelectionItem[]>([]);
   const [summary, setSummary] = useState<SelectionSummary | null>(null);
@@ -157,6 +169,19 @@ export default function SelectionPage() {
           <label className="field">bright_threshold<input type="number" value={brightT} onChange={(e) => setBrightT(Number(e.target.value))} /></label>
           <label className="sel-dup"><input type="checkbox" checked={detectDup} onChange={(e) => setDetectDup(e.target.checked)} /> 重複検出</label>
           <button onClick={run} disabled={busy}>{busy ? "実行中…" : "チェック実行"}</button>
+          <span className="sel-settings-sep" />
+          <label className="field sel-size-field" title="見た目のみの設定です。チェック結果には影響しません">
+            表示サイズ
+            <input
+              type="range"
+              min={120}
+              max={400}
+              step={10}
+              value={thumbSize}
+              onChange={(e) => setThumbSize(Number(e.target.value))}
+            />
+            <span className="sel-size-value">{thumbSize}px</span>
+          </label>
         </div>
         {error && <div className="error">{error}</div>}
       </details>
@@ -195,7 +220,10 @@ export default function SelectionPage() {
             <span className="muted">{view.length} 件</span>
           </div>
 
-          <div className="thumb-grid sel-grid">
+          <div
+            className="thumb-grid sel-grid"
+            style={{ "--sel-thumb-w": `${thumbSize}px` } as React.CSSProperties}
+          >
             {view.map((it) => (
               <figure key={it.image_id} className={"thumb sel-card status-" + it.status}>
                 <span className={"sel-status-badge " + statusClass(it.status)}>{statusLabel(it.status)}</span>
