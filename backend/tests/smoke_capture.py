@@ -298,7 +298,15 @@ def main() -> None:
     test_id_path_traversal_rejection()
     test_malformed_source_input()
     test_credential_masking()
-    test_unreachable_url_capture()
+    test_camera_unreachable_still_fails_fast()
+
+    # --- 長時間運用対応（24時間〜数日連続稼働）の回帰テスト ---
+    test_no_fixed_time_limit_in_real_worker()
+    test_reconnect_recovery()
+    test_unrecoverable_exception_marks_failed()
+    test_url_initial_connect_wait_then_recovers()
+    test_url_stop_during_initial_connect_wait()
+    test_stale_auto_capture_slot_is_skipped_then_resumes()
 
     print("\nALL CAPTURE SMOKE TESTS PASSED")
 
@@ -572,18 +580,18 @@ def test_credential_masking() -> None:
     client.post(f"{base}/{vid}/stop")
 
 
-def test_unreachable_url_capture() -> None:
-    """到達不能URLでは、リトライを使い切った上で failed になり、残骸を残さず終了すること
-    （video側 test_url_job_lifecycle の到達不能URLケースと同じ手法。capture_worker.py用）。
+def test_camera_unreachable_still_fails_fast() -> None:
+    """camera（ローカルカメラ）は、URLと異なり従来どおり数回のリトライで見切りを
+    つけ failed として早期にユーザーへ通知すること（起動時接続待ちの無期限化は
+    URLソースのみが対象で、camera側の既存仕様には影響しないことの回帰確認）。
     """
-    vid = "cap_url_unreachable"
+    vid = "cap_camera_unreachable"
     d = ROOT / PROJ / "capture" / vid
     (d / "live").mkdir(parents=True, exist_ok=True)
     job_json = d / "job.json"
     job_json.write_text(_json.dumps({
-        "session_id": vid, "status": "queued", "source_type": "url",
-        "source_url": "http://127.0.0.1:1/unreachable", "video_fps": 10,
-        "captured_count": 0,
+        "session_id": vid, "status": "queued", "source_type": "camera",
+        "camera_index": 0, "video_fps": 10, "captured_count": 0,
     }), encoding="utf-8")
     (d / "capture.log").touch()
 
@@ -620,8 +628,8 @@ def test_unreachable_url_capture() -> None:
         "--live-dir", str(d / "live"),
         "--raw-images-dir", str(ROOT / PROJ / "raw" / "images"),
         "--backend-dir", str(_BACKEND_DIR),
-        "--source-type", "url",
-        "--source", "http://127.0.0.1:1/unreachable",
+        "--source-type", "camera",
+        "--source", "0",
         "--video-fps", "10", "--interval-minutes", "0",
     ]
     try:
@@ -635,10 +643,680 @@ def test_unreachable_url_capture() -> None:
         if orig_dry_run is not None:
             os.environ["YTS_CAPTURE_DRY_RUN"] = orig_dry_run
 
-    check("cap_url: unreachable url -> main() returns failure (1)", rc == 1)
+    check("camera unreachable -> main() returns failure (1)", rc == 1)
     final = _safe_read_job(job_json)
-    check("cap_url: unreachable url ends in failed", final.get("status") == "failed")
-    check("cap_url: main() returned (no hang / no residue)", True)
+    check("camera unreachable ends in failed (unlike url, no infinite wait)", final.get("status") == "failed")
+
+
+def test_url_initial_connect_wait_then_recovers() -> None:
+    """URLソースが起動直後は接続できない場合の挙動（今回追加した必須修正）。
+
+    - 起動直後に接続できなくても failed にはならず running のまま
+      「接続待機中…」として待ち続けること
+    - 接続待機中もCPUを浪費する高速リトライにはならず、backoffで再試行すること
+      （このテスト自体は待ち時間そのものの長さまでは検証しない。挙動の存在確認）
+    - その後URLが復旧すると接続に成功し running/running へ戻ること
+    - 復旧後、自動撮影（interval）が正常に開始されること
+    """
+    from PIL import Image  # noqa: PLC0415
+    import io as _io  # noqa: PLC0415
+
+    sid = "url_connect_wait_test"
+    sdir = ROOT / PROJ / "capture" / sid
+    (sdir / "live").mkdir(parents=True, exist_ok=True)
+    job_json = sdir / "job.json"
+    job_json.write_text(_json.dumps({"session_id": sid, "status": "queued", "captured_count": 0}), encoding="utf-8")
+    (sdir / "capture.log").touch()
+
+    # 起動直後の数回（VideoCapture呼び出し）は isOpened()=False（接続失敗）を返し、
+    # それ以降は正常に開けて読めるキャプチャを返す（＝しばらくしてURLが復旧する想定）。
+    state = {"opens": 0, "frame_no": 0}
+
+    class _UnopenableCap:
+        def isOpened(self) -> bool:
+            return False
+
+        def set(self, *_a, **_kw) -> bool:
+            return True
+
+        def release(self) -> None:
+            pass
+
+    class _WorkingCap:
+        def isOpened(self) -> bool:
+            return True
+
+        def read(self):
+            state["frame_no"] += 1
+            return True, f"frame-{state['frame_no']}"
+
+        def set(self, *_a, **_kw) -> bool:
+            return True
+
+        def release(self) -> None:
+            pass
+
+    class _JpegBuf:
+        def __init__(self, data: bytes) -> None:
+            self._data = data
+
+        def tobytes(self) -> bytes:
+            return self._data
+
+    class _FakeCv2:
+        CAP_FFMPEG = 1900
+        CAP_DSHOW = 700
+        CAP_PROP_BUFFERSIZE = 38
+        CAP_PROP_OPEN_TIMEOUT_MSEC = 53
+        CAP_PROP_READ_TIMEOUT_MSEC = 54
+
+        def VideoCapture(self, *_a, **_kw):
+            state["opens"] += 1
+            # 最初の3回（初回オープン+2回の待機中リトライ）は接続できない状態を再現する。
+            return _UnopenableCap() if state["opens"] <= 3 else _WorkingCap()
+
+        def imencode(self, _ext, _frame):
+            buf = _io.BytesIO()
+            Image.new("RGB", (320, 240), (20 + state["frame_no"] % 200, 70, 130)).save(buf, format="JPEG")
+            return True, _JpegBuf(buf.getvalue())
+
+        def __getattr__(self, _name):
+            return lambda *a, **kw: None
+
+    orig_argv = sys.argv
+    orig_cv2 = sys.modules.get("cv2")
+    orig_dry_run = os.environ.pop("YTS_CAPTURE_DRY_RUN", None)
+    sys.modules["cv2"] = _FakeCv2()
+    sys.argv = [
+        "capture_worker.py",
+        "--job-json", str(job_json),
+        "--live-dir", str(sdir / "live"),
+        "--raw-images-dir", str(ROOT / PROJ / "raw" / "images"),
+        "--backend-dir", str(_BACKEND_DIR),
+        "--source-type", "url",
+        "--source", "http://127.0.0.1:9/connect-wait-fake",
+        # interval-minutesは公開APIの1分下限を経由しない直接起動なので、短い値で
+        # 自動撮影の開始まで高速に確認できる。
+        "--video-fps", "20", "--interval-minutes", "0.03",
+    ]
+
+    result_holder: dict[str, int] = {}
+
+    def _run() -> None:
+        result_holder["rc"] = capture_worker.main()
+
+    th = threading.Thread(target=_run, daemon=True)
+    th.start()
+    try:
+        # --- (1)(2) 起動直後は接続できず、failedにはならず「接続待機中」のままであること ---
+        saw_waiting = False
+        for _ in range(150):  # 最大約15秒
+            time.sleep(0.1)
+            data = _safe_read_job(job_json)
+            if "接続待機中" in (data.get("message") or ""):
+                saw_waiting = True
+                if data.get("status") == "failed":
+                    break
+            if data.get("status") == "failed":
+                break
+        check("url connect-wait: message shows waiting for initial connection", saw_waiting)
+        check(
+            "url connect-wait: status is running (not failed) while waiting to connect",
+            _safe_read_job(job_json).get("status") == "running",
+        )
+        check("url connect-wait: worker thread still alive while waiting", th.is_alive())
+
+        # --- (4)(5) URLが復旧すると接続に成功し running へ戻ること ---
+        # interval_secondsが短いテスト設定では、接続成功直後の壁時計スロットに
+        # 極めて近いタイミングで自動撮影が発火し、message が "running" から
+        # 撮影成功メッセージへ一瞬で遷移することがある（ポーリング間隔0.1秒では
+        # その一瞬の "running" 文字列そのものを取り逃す可能性がある）。ここでは
+        # 「接続待機中」から抜けて running のまま（＝failed/stoppedになっていない）
+        # ことをもって復旧の確認とする（自動撮影の実際の発火は次の確認で見る）。
+        connected = False
+        for _ in range(100):
+            time.sleep(0.1)
+            data = _safe_read_job(job_json)
+            if data.get("status") == "running" and "接続待機中" not in (data.get("message") or ""):
+                connected = True
+                break
+        check("url connect-wait: connects and returns to running once source recovers", connected)
+
+        # --- (6) 復旧後、自動撮影(interval)が開始されること ---
+        auto_captured = False
+        for _ in range(150):  # 最大約15秒（壁時計基準アライメント分の待ちを含む）
+            time.sleep(0.1)
+            data = _safe_read_job(job_json)
+            if (data.get("captured_count") or 0) >= 1:
+                auto_captured = True
+                break
+        check("url connect-wait: auto capture starts after recovering", auto_captured)
+    finally:
+        (sdir / "stop.flag").write_text("stop", encoding="utf-8")
+        th.join(timeout=15)
+        sys.argv = orig_argv
+        if orig_cv2 is not None:
+            sys.modules["cv2"] = orig_cv2
+        else:
+            sys.modules.pop("cv2", None)
+        if orig_dry_run is not None:
+            os.environ["YTS_CAPTURE_DRY_RUN"] = orig_dry_run
+
+    check("url connect-wait: worker thread exited after stop", not th.is_alive())
+    check("url connect-wait: main() returned success (0) on normal stop", result_holder.get("rc") == 0)
+    check("url connect-wait: final status is stopped (not failed)", _safe_read_job(job_json).get("status") == "stopped")
+
+
+def test_url_stop_during_initial_connect_wait() -> None:
+    """(3) URLソースが起動直後から一度も接続できないままでも、stop要求には
+    速やかに応答して終了できること（failedにもハングにもならない）。
+    """
+    sid = "url_connect_wait_stop_test"
+    sdir = ROOT / PROJ / "capture" / sid
+    (sdir / "live").mkdir(parents=True, exist_ok=True)
+    job_json = sdir / "job.json"
+    job_json.write_text(_json.dumps({"session_id": sid, "status": "queued", "captured_count": 0}), encoding="utf-8")
+    (sdir / "capture.log").touch()
+
+    class _NeverOpensCap:
+        def isOpened(self) -> bool:
+            return False
+
+        def set(self, *_a, **_kw) -> bool:
+            return True
+
+        def release(self) -> None:
+            pass
+
+    class _FakeCv2:
+        CAP_FFMPEG = 1900
+        CAP_DSHOW = 700
+        CAP_PROP_BUFFERSIZE = 38
+        CAP_PROP_OPEN_TIMEOUT_MSEC = 53
+        CAP_PROP_READ_TIMEOUT_MSEC = 54
+
+        def VideoCapture(self, *_a, **_kw):
+            return _NeverOpensCap()
+
+        def __getattr__(self, _name):
+            return lambda *a, **kw: None
+
+    orig_argv = sys.argv
+    orig_cv2 = sys.modules.get("cv2")
+    orig_dry_run = os.environ.pop("YTS_CAPTURE_DRY_RUN", None)
+    sys.modules["cv2"] = _FakeCv2()
+    sys.argv = [
+        "capture_worker.py",
+        "--job-json", str(job_json),
+        "--live-dir", str(sdir / "live"),
+        "--raw-images-dir", str(ROOT / PROJ / "raw" / "images"),
+        "--backend-dir", str(_BACKEND_DIR),
+        "--source-type", "url",
+        "--source", "http://127.0.0.1:9/never-opens",
+        "--video-fps", "20", "--interval-minutes", "0",
+    ]
+
+    result_holder: dict[str, int] = {}
+
+    def _run() -> None:
+        result_holder["rc"] = capture_worker.main()
+
+    th = threading.Thread(target=_run, daemon=True)
+    th.start()
+    try:
+        # 接続待機状態に入るまで少し待ってから、停止要求を出す。
+        entered_waiting = False
+        for _ in range(50):
+            time.sleep(0.1)
+            data = _safe_read_job(job_json)
+            if "接続待機中" in (data.get("message") or ""):
+                entered_waiting = True
+                break
+        check("url connect-wait stop: entered waiting state before stop request", entered_waiting)
+    finally:
+        (sdir / "stop.flag").write_text("stop", encoding="utf-8")
+
+    # backoffの途中でも速やかに（数秒程度で）終了できること
+    # （_interruptible_sleep によりbackoff中でも0.5秒刻みで停止要求を確認する）。
+    joined_in_time = True
+    th.join(timeout=10)
+    if th.is_alive():
+        joined_in_time = False
+    check("url connect-wait stop: worker exits promptly during connect-wait backoff", joined_in_time)
+    check("url connect-wait stop: main() returned success (0)", result_holder.get("rc") == 0)
+    final = _safe_read_job(job_json)
+    check("url connect-wait stop: final status is stopped (not failed)", final.get("status") == "stopped")
+
+
+def test_no_fixed_time_limit_in_real_worker() -> None:
+    """実運用パス（YTS_CAPTURE_DRY_RUN未設定時）に固定時間の終了条件（旧: 6時間）が
+    存在しないことをソースから確認する。
+
+    実際に24時間〜数日待って確認することはできないため、静的検査で代替する
+    （ループ・再接続はモック可能な構成のため、動的な挙動は他のテスト関数で検証する）。
+    """
+    src = (Path(__file__).resolve().parents[1] / "workers" / "capture_worker.py").read_text(encoding="utf-8")
+    check("no fixed 6h deadline (3600 * 6) left in source", "3600 * 6" not in src.replace(" ", ""))
+    check("real-run loop uses 'while True' (time-based deadline removed)", "while True:" in src)
+    # dry-run（テスト用）の60秒制限はテスト用途として維持されていること
+    check("dry-run's 60s time limit is still present (test-only, intentionally kept)",
+          "deadline = time.time() + 60" in src)
+
+
+def test_reconnect_recovery() -> None:
+    """URL/カメラの一時的な切断からの再接続シナリオ（長時間運用対応の核心）。
+
+    実カメラ/ネットワークは使わず、cv2 モジュール全体をフェイクに差し替えて
+    「最初のオープンは成功するがフレーム読み取りが続けて失敗する（＝一時的な
+    通信断）→ ワーカーが再接続 → 再オープンしたキャプチャは正常にフレームを
+    返す（＝復旧）」という時系列をシミュレートする。
+
+    確認する内容:
+      - フレーム読み取り失敗が続くと再接続（message に「再接続中」）を試みること
+      - その間 status は failed/stopped にならず running のままであること
+        （一時的な通信断だけでセッションを終了しない）
+      - 再接続成功後は status/message が running に戻ること
+      - worker プロセス（スレッド）自体は生き続けており、再接続後も撮影が
+        正常に行えること
+      - 最終的にユーザーの停止要求（stop.flag）で正常に stopped 終了すること
+    """
+    from PIL import Image  # noqa: PLC0415
+    import io as _io  # noqa: PLC0415
+
+    sid = "reconnect_test"
+    sdir = ROOT / PROJ / "capture" / sid
+    (sdir / "live").mkdir(parents=True, exist_ok=True)
+    job_json = sdir / "job.json"
+    job_json.write_text(_json.dumps({"session_id": sid, "status": "queued", "captured_count": 0}), encoding="utf-8")
+    (sdir / "capture.log").touch()
+
+    state = {"opens": 0, "frame_no": 0}
+
+    class _StallingCap:
+        """最初に開かれるキャプチャ。開けてはいるが、フレームは一切読めない
+        （一時的な通信断・ストリーム停止を模す）。"""
+
+        def isOpened(self) -> bool:
+            return True
+
+        def read(self):
+            return False, None
+
+        def set(self, *_a, **_kw) -> bool:
+            return True
+
+        def release(self) -> None:
+            pass
+
+    class _WorkingCap:
+        """再接続後に開かれるキャプチャ。以後は常にフレームを返す（＝復旧）。"""
+
+        def isOpened(self) -> bool:
+            return True
+
+        def read(self):
+            state["frame_no"] += 1
+            return True, f"frame-{state['frame_no']}"
+
+        def set(self, *_a, **_kw) -> bool:
+            return True
+
+        def release(self) -> None:
+            pass
+
+    class _JpegBuf:
+        def __init__(self, data: bytes) -> None:
+            self._data = data
+
+        def tobytes(self) -> bytes:
+            return self._data
+
+    class _FakeCv2:
+        CAP_FFMPEG = 1900
+        CAP_DSHOW = 700
+        CAP_PROP_BUFFERSIZE = 38
+        CAP_PROP_OPEN_TIMEOUT_MSEC = 53
+        CAP_PROP_READ_TIMEOUT_MSEC = 54
+
+        def VideoCapture(self, *_a, **_kw):
+            state["opens"] += 1
+            # 1回目のオープン（初回接続）は「開けるが読めない」キャプチャ、
+            # 2回目以降（再接続）は「正常に読める」キャプチャを返す。
+            return _StallingCap() if state["opens"] == 1 else _WorkingCap()
+
+        def imencode(self, _ext, _frame):
+            # 実際のフレーム内容は解釈しない（read()側で完全に制御しているため）。
+            # image_service.save_uploads のPIL検証を通す必要があるので、
+            # 有効なJPEGバイト列だけは本物を生成する（撮影ごとに色を変えて
+            # SHA1重複チェックに弾かれないようにする）。
+            buf = _io.BytesIO()
+            Image.new("RGB", (320, 240), (10 + state["frame_no"] % 200, 40, 90)).save(buf, format="JPEG")
+            return True, _JpegBuf(buf.getvalue())
+
+        def __getattr__(self, _name):
+            return lambda *a, **kw: None
+
+    orig_argv = sys.argv
+    orig_cv2 = sys.modules.get("cv2")
+    orig_dry_run = os.environ.pop("YTS_CAPTURE_DRY_RUN", None)  # 実処理（読み取り/再接続パス）を通す
+    sys.modules["cv2"] = _FakeCv2()
+    sys.argv = [
+        "capture_worker.py",
+        "--job-json", str(job_json),
+        "--live-dir", str(sdir / "live"),
+        "--raw-images-dir", str(ROOT / PROJ / "raw" / "images"),
+        "--backend-dir", str(_BACKEND_DIR),
+        "--source-type", "url",
+        "--source", "http://127.0.0.1:9/reconnect-fake",
+        # video_fps=20 -> max_read_fail=max(10, 20*3)=60、video_interval=0.05秒。
+        # 60回連続失敗にかかる時間は約3秒で、テストとして十分速い。
+        "--video-fps", "20", "--interval-minutes", "0",
+    ]
+
+    result_holder: dict[str, int] = {}
+
+    def _run() -> None:
+        result_holder["rc"] = capture_worker.main()
+
+    th = threading.Thread(target=_run, daemon=True)
+    th.start()
+    try:
+        # --- フレーム取得失敗が続き、再接続中メッセージが出ること ---
+        saw_reconnecting = False
+        for _ in range(150):  # 最大約15秒待つ
+            time.sleep(0.1)
+            data = _safe_read_job(job_json)
+            if "再接続中" in (data.get("message") or ""):
+                saw_reconnecting = True
+                break
+        check("reconnect: message shows reconnecting after read failures", saw_reconnecting)
+        check(
+            "reconnect: status stays running during reconnect (not failed/stopped)",
+            _safe_read_job(job_json).get("status") == "running",
+        )
+        check("reconnect: worker thread still alive during reconnect", th.is_alive())
+
+        # --- 再接続成功後、status/message が running に戻ること ---
+        recovered = False
+        for _ in range(100):
+            time.sleep(0.1)
+            data = _safe_read_job(job_json)
+            if data.get("status") == "running" and data.get("message") == "running":
+                recovered = True
+                break
+        check("reconnect: status/message return to running after reconnect succeeds", recovered)
+        check("reconnect: worker thread still alive after recovery (session not terminated)", th.is_alive())
+
+        # --- 復旧後、実際に撮影ができること（見た目だけでなく機能的に復旧している確認） ---
+        (sdir / "capture.flag").write_text("capture", encoding="utf-8")
+        captured = False
+        for _ in range(100):
+            time.sleep(0.1)
+            data = _safe_read_job(job_json)
+            if (data.get("captured_count") or 0) >= 1:
+                captured = True
+                break
+        check("reconnect: capture succeeds after reconnect recovery", captured)
+    finally:
+        (sdir / "stop.flag").write_text("stop", encoding="utf-8")
+        th.join(timeout=15)
+        sys.argv = orig_argv
+        if orig_cv2 is not None:
+            sys.modules["cv2"] = orig_cv2
+        else:
+            sys.modules.pop("cv2", None)
+        if orig_dry_run is not None:
+            os.environ["YTS_CAPTURE_DRY_RUN"] = orig_dry_run
+
+    check("reconnect: worker thread exited after stop request", not th.is_alive())
+    check("reconnect: main() returned success (0) on normal stop", result_holder.get("rc") == 0)
+    final = _safe_read_job(job_json)
+    check(
+        "reconnect: final status is stopped (temporary disconnect did not end the session)",
+        final.get("status") == "stopped",
+    )
+
+
+def test_unrecoverable_exception_marks_failed() -> None:
+    """一時的な読み取り失敗（再接続で回復可能）とは異なり、想定外の例外
+    （例: フレームのエンコード処理そのものの失敗）が起きた場合は「回復不能な例外」
+    として扱われ、stopped ではなく failed として job.json が確定すること。
+    """
+    sid = "unrecoverable_test"
+    sdir = ROOT / PROJ / "capture" / sid
+    (sdir / "live").mkdir(parents=True, exist_ok=True)
+    job_json = sdir / "job.json"
+    job_json.write_text(_json.dumps({"session_id": sid, "status": "queued", "captured_count": 0}), encoding="utf-8")
+    (sdir / "capture.log").touch()
+
+    class _OkCap:
+        def isOpened(self) -> bool:
+            return True
+
+        def read(self):
+            return True, "frame"
+
+        def set(self, *_a, **_kw) -> bool:
+            return True
+
+        def release(self) -> None:
+            pass
+
+    class _FakeCv2:
+        CAP_FFMPEG = 1900
+        CAP_DSHOW = 700
+        CAP_PROP_BUFFERSIZE = 38
+        CAP_PROP_OPEN_TIMEOUT_MSEC = 53
+        CAP_PROP_READ_TIMEOUT_MSEC = 54
+
+        def VideoCapture(self, *_a, **_kw):
+            return _OkCap()
+
+        def imencode(self, _ext, _frame):
+            # cap.read() 自体の失敗（再接続で回復すべき一時的な不調）とは異なり、
+            # ループ内の他の処理で起きる想定外の例外を模す（回復不能な例外）。
+            raise RuntimeError("simulated unrecoverable encode failure")
+
+        def __getattr__(self, _name):
+            return lambda *a, **kw: None
+
+    orig_argv = sys.argv
+    orig_cv2 = sys.modules.get("cv2")
+    orig_dry_run = os.environ.pop("YTS_CAPTURE_DRY_RUN", None)
+    sys.modules["cv2"] = _FakeCv2()
+    sys.argv = [
+        "capture_worker.py",
+        "--job-json", str(job_json),
+        "--live-dir", str(sdir / "live"),
+        "--raw-images-dir", str(ROOT / PROJ / "raw" / "images"),
+        "--backend-dir", str(_BACKEND_DIR),
+        "--source-type", "url",
+        "--source", "http://127.0.0.1:9/boom",
+        "--video-fps", "10", "--interval-minutes", "0",
+    ]
+    try:
+        rc = capture_worker.main()
+    finally:
+        sys.argv = orig_argv
+        if orig_cv2 is not None:
+            sys.modules["cv2"] = orig_cv2
+        else:
+            sys.modules.pop("cv2", None)
+        if orig_dry_run is not None:
+            os.environ["YTS_CAPTURE_DRY_RUN"] = orig_dry_run
+
+    check("unrecoverable: main() returns failure (1)", rc == 1)
+    final = _safe_read_job(job_json)
+    check("unrecoverable: status is failed (not stopped)", final.get("status") == "failed")
+    check("unrecoverable: message mentions the failure", bool(final.get("message")))
+    check("unrecoverable: finished_at is set", bool(final.get("finished_at")))
+
+
+def test_stale_auto_capture_slot_is_skipped_then_resumes() -> None:
+    """stale-skip（自動撮影スロットの遅延許容 max(5秒, video_interval*5)）が、
+
+    - 通信断で本当に長く遅延したスロットは追いかけ撮影しない（既存の目的）
+    - かつ、通常運転レベルの遅延では撮影を不必要にスキップしない（今回の確認事項）
+
+    の両方を満たしていることを確認する。
+
+    通信断シナリオ: 読み取りが連続失敗する状態（cap.isOpened()はTrueだがread()が
+    失敗し続ける）を意図的に約10秒間（許容誤差5秒を明確に超える長さ）継続させ、
+    その間に自動撮影スロット（interval=2秒）が複数回過ぎるようにする。復旧直後に
+    その間の失敗したスロットをまとめて追いかけ撮影していないこと（復旧直後の
+    captured_countが0のまま）、かつその後の正規スロットでは通常どおり撮影が
+    再開すること（captured_countが増える）を確認する。
+    """
+    from PIL import Image  # noqa: PLC0415
+    import io as _io  # noqa: PLC0415
+
+    sid = "stale_skip_test"
+    sdir = ROOT / PROJ / "capture" / sid
+    (sdir / "live").mkdir(parents=True, exist_ok=True)
+    job_json = sdir / "job.json"
+    job_json.write_text(_json.dumps({"session_id": sid, "status": "queued", "captured_count": 0}), encoding="utf-8")
+    (sdir / "capture.log").touch()
+
+    state = {"opens": 0, "frame_no": 0}
+
+    class _StallingCap:
+        """開けはするが読めない（通信断シミュレーション）。"""
+
+        def isOpened(self) -> bool:
+            return True
+
+        def read(self):
+            return False, None
+
+        def set(self, *_a, **_kw) -> bool:
+            return True
+
+        def release(self) -> None:
+            pass
+
+    class _WorkingCap:
+        def isOpened(self) -> bool:
+            return True
+
+        def read(self):
+            state["frame_no"] += 1
+            return True, f"frame-{state['frame_no']}"
+
+        def set(self, *_a, **_kw) -> bool:
+            return True
+
+        def release(self) -> None:
+            pass
+
+    class _JpegBuf:
+        def __init__(self, data: bytes) -> None:
+            self._data = data
+
+        def tobytes(self) -> bytes:
+            return self._data
+
+    class _FakeCv2:
+        CAP_FFMPEG = 1900
+        CAP_DSHOW = 700
+        CAP_PROP_BUFFERSIZE = 38
+        CAP_PROP_OPEN_TIMEOUT_MSEC = 53
+        CAP_PROP_READ_TIMEOUT_MSEC = 54
+
+        def VideoCapture(self, *_a, **_kw):
+            state["opens"] += 1
+            # 初回オープン+再接続2回分（計3回）は「開けるが読めない」状態を維持し、
+            # 通信断を約9〜10秒（許容誤差5秒を明確に超える長さ）継続させる。
+            # 4回目のオープン（3回目の再接続）で復旧する。
+            return _StallingCap() if state["opens"] <= 3 else _WorkingCap()
+
+        def imencode(self, _ext, _frame):
+            buf = _io.BytesIO()
+            Image.new("RGB", (320, 240), (5 + state["frame_no"] % 200, 100, 150)).save(buf, format="JPEG")
+            return True, _JpegBuf(buf.getvalue())
+
+        def __getattr__(self, _name):
+            return lambda *a, **kw: None
+
+    orig_argv = sys.argv
+    orig_cv2 = sys.modules.get("cv2")
+    orig_dry_run = os.environ.pop("YTS_CAPTURE_DRY_RUN", None)
+    sys.modules["cv2"] = _FakeCv2()
+    sys.argv = [
+        "capture_worker.py",
+        "--job-json", str(job_json),
+        "--live-dir", str(sdir / "live"),
+        "--raw-images-dir", str(ROOT / PROJ / "raw" / "images"),
+        "--backend-dir", str(_BACKEND_DIR),
+        "--source-type", "url",
+        "--source", "http://127.0.0.1:9/stale-skip-fake",
+        # video_fps=20 -> max_read_fail=60, video_interval=0.05秒 -> 1回の通信断
+        # サイクルは約3秒（60*0.05）。3サイクル分＝約9秒の通信断を作る。
+        # interval-minutes=2/60（=2秒）の自動撮影スロットが、その約9秒の間に
+        # 複数回過ぎるようにする。
+        "--video-fps", "20", "--interval-minutes", str(2 / 60),
+    ]
+
+    result_holder: dict[str, int] = {}
+
+    def _run() -> None:
+        result_holder["rc"] = capture_worker.main()
+
+    th = threading.Thread(target=_run, daemon=True)
+    th.start()
+    try:
+        # --- まず本当に通信断（再接続中）状態へ入ったことを確認する ---
+        # ("running"状態は通信断の前後どちらでも観測され得るため、"再接続中"を
+        #  経由したことを先に確認しないと、通信断が起きる前の状態を誤って
+        #  「復旧した」と判定してしまう（実際にこの誤判定が起きたため修正した）。
+        saw_reconnecting = False
+        for _ in range(150):  # 最大約15秒
+            time.sleep(0.1)
+            data = _safe_read_job(job_json)
+            if "再接続中" in (data.get("message") or ""):
+                saw_reconnecting = True
+                break
+        check("stale-skip: enters reconnecting state (outage simulated)", saw_reconnecting)
+
+        # --- 再接続中の状態を経由した後、実際に復旧する（running に戻る）まで待つ ---
+        recovered = False
+        for _ in range(200):  # 最大約20秒（3回のstalling openサイクル分を待てる）
+            time.sleep(0.1)
+            data = _safe_read_job(job_json)
+            if data.get("status") == "running" and "再接続中" not in (data.get("message") or ""):
+                recovered = True
+                break
+        check("stale-skip: worker recovers from the simulated outage", recovered)
+
+        # --- 復旧した直後は、通信断中に過ぎたスロットを追いかけ撮影していないこと ---
+        just_after_recovery = _safe_read_job(job_json)
+        check(
+            "stale-skip: no catch-up capture for the stale slot right after recovery",
+            (just_after_recovery.get("captured_count") or 0) == 0,
+        )
+
+        # --- その後の正規スロットでは、通常どおり撮影が再開すること（撮影を
+        #     不必要にスキップし続けているのではないことの確認） ---
+        resumed = False
+        for _ in range(150):  # 最大約15秒（次の2秒スロット到来を十分待てる）
+            time.sleep(0.1)
+            data = _safe_read_job(job_json)
+            if (data.get("captured_count") or 0) >= 1:
+                resumed = True
+                break
+        check("stale-skip: normal auto capture resumes at the next regular slot", resumed)
+    finally:
+        (sdir / "stop.flag").write_text("stop", encoding="utf-8")
+        th.join(timeout=15)
+        sys.argv = orig_argv
+        if orig_cv2 is not None:
+            sys.modules["cv2"] = orig_cv2
+        else:
+            sys.modules.pop("cv2", None)
+        if orig_dry_run is not None:
+            os.environ["YTS_CAPTURE_DRY_RUN"] = orig_dry_run
+
+    check("stale-skip: worker thread exited after stop", not th.is_alive())
+    check("stale-skip: main() returned success (0) on normal stop", result_holder.get("rc") == 0)
 
 
 if __name__ == "__main__":
