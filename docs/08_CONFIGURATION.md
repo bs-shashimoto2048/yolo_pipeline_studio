@@ -20,9 +20,11 @@
 
 | 設定 | 値 |
 |---|---|
-| 開発サーバー port | `5173` |
+| 開発サーバー port | `5173`（環境変数 `VITE_DEV_PORT` で上書き可） |
 | 開発サーバー host | `true`（全インターフェースでリスン） |
-| `/api` プロキシ先 | `http://localhost:8000` |
+| `/api` プロキシ先 | `http://localhost:8000`（環境変数 `VITE_BACKEND_PORT` で上書き可） |
+
+`VITE_DEV_PORT` / `VITE_BACKEND_PORT` は、他アプリとのポート衝突を避けたい場合に指定する（未指定時は上記デフォルト値のまま）。1〜65535の整数以外（空文字・非数値・0・負数・65536以上・小数・`Infinity`等）を指定した場合はデフォルト値へフォールバックする。
 
 ### `frontend/tsconfig.json`
 
