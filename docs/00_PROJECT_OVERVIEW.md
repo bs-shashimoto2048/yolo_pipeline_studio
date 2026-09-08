@@ -70,7 +70,7 @@ yolo_pipeline_studio/
 ├── frontend/       React + Vite + TS + Konva の SPA
 ├── docs/           設計・仕様ドキュメント
 ├── projects/       案件データ（画像/ラベル/学習結果/モデル）※Git 管理外
-├── scripts/        運用補助スクリプト（Git 未追跡。`apply_readings_*.py` 等）
+├── scripts/        運用補助スクリプト（`review_montage.py` のみ。Git管理下、read-only）
 ├── requirements.txt        バックエンド起動に必要な軽量依存のみ
 └── requirements-train.txt  学習/ONNX 用の重い依存（別管理）
 ```

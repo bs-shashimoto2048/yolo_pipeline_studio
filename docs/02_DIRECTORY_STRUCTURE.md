@@ -106,6 +106,28 @@ yolo_pipeline_studio/
 
 `.gitignore` で除外。`YTS_PROJECTS_ROOT` 環境変数で格納先を変更可能（未指定時は本ディレクトリ）。データレイアウトの詳細は [`01_ARCHITECTURE.md`](01_ARCHITECTURE.md) を参照。
 
-## `scripts/`（Git未追跡）
+## `scripts/`（Git管理下）
 
-`apply_readings_capture001.py`, `apply_readings_src002.py`, `apply_readings_src003.py`, `apply_readings_src004.py`, `ensemble_autolabel.py`, `review_montage.py` の6ファイルが存在する。いずれも `git status` で未追跡（`??`）であり、リポジトリの正式な構成物としては確認できない（運用時の一時スクリプトと判断される）。
+Issue #9のクリーンアップにより、当初存在した特定時点・特定データ向けの補正/再ラベリングスクリプト5本（`apply_readings_*.py`、`ensemble_autolabel.py`）は削除した。いずれもアプリ本体・tests・docsから実行時参照されておらず、既存ラベルを無条件に上書きする破壊的処理を含み、一部はローカル環境固有の絶対パスに依存していたため、Git管理下に残す価値がないと判断した。
+
+現在は `review_montage.py` のみが正式に収録されている。
+
+### `review_montage.py`
+
+目視アノテーション補助用のユーティリティ。`projects/<project名>/raw/images` と `annotations/labels` を**読み取るだけ**で、どちらも変更しない（read-only）。指定した領域でraw画像をクロップし、グリッド状のmontage画像1枚として出力する。`--show-boxes` を付けると現在のラベル（矩形・クラス）をクロップ画像へ重ねて表示できるため、目視で読んだ数値と現行ラベルの突き合わせに使う。
+
+| 項目 | 内容 |
+|---|---|
+| 入力 | `projects/<project>/raw/images/*`（画像）、`projects/<project>/annotations/labels/*.txt`（`--show-boxes`時のみ） |
+| 出力 | `--out` で指定した1枚のmontage画像ファイルのみ（projectデータへの書き込みなし） |
+| 対象project | `--project`（既定: `meter`）で切り替え可能 |
+
+実行例:
+
+```powershell
+.venv\Scripts\python.exe scripts\review_montage.py --project meter --prefix src_003_ `
+  --crop 0.50 0.76 0.44 0.68 --cols 5 --start 0 --count 20 `
+  --out C:\path\to\output\src_003_batch01.jpg --show-boxes
+```
+
+`--out` は既存ファイルを上書きするが、対象は明示的に指定した出力パスのみであり、`projects/` 配下の画像・ラベルは一切変更しない。

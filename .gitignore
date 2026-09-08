@@ -35,6 +35,9 @@ dist/
 .vite/
 *.local
 
+# TypeScript incremental build cache（tsc -b が生成するビルド副産物。Issue #9）
+*.tsbuildinfo
+
 # ===== ログ・一時ファイル =====
 *.log
 *.tmp
