@@ -298,7 +298,9 @@ export interface SelectionRunRequest {
   dark_threshold: number;
   bright_threshold: number;
   detect_duplicates: boolean;
-  overwrite: boolean;
+  mode?: "diff" | "full";
+  /** @deprecated mode を使うこと。後方互換のためのみ残されている。 */
+  overwrite?: boolean;
 }
 
 export interface SelectionItem {
@@ -308,6 +310,8 @@ export interface SelectionItem {
   width: number;
   height: number;
   status: string;
+  // auto=自動判定 / manual=利用者が明示的に変更 / unknown=由来不明（旧データ）
+  status_source: "auto" | "manual" | "unknown";
   warnings: string[];
   reasons: string[];
   hash: string | null;
@@ -315,6 +319,7 @@ export interface SelectionItem {
   blur_score: number | null;
   duplicate_of: string | null;
   manual_reason: string | null;
+  updated_at: string | null;
 }
 
 export interface SelectionSummary {
@@ -329,18 +334,40 @@ export interface SelectionSummary {
   blur_count: number;
 }
 
+export interface SelectionJobStatus {
+  status: "queued" | "running" | "completed" | "failed" | "unknown";
+  mode: "diff" | "full" | null;
+  source: string | null;
+  message: string | null;
+  total_count: number;
+  processed_count: number;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  return_code: number | null;
+}
+
 export interface SelectionRunResponse {
   project_name: string;
-  source: string;
-  summary: SelectionSummary;
   selection_path: string;
+  job: SelectionJobStatus;
 }
 
 export interface SelectionGetResponse {
   project_name: string;
   source: string;
+  created_at: string | null;
   summary: SelectionSummary;
   items: SelectionItem[];
+  current_image_count: number;
+  new_image_count: number;
+  missing_image_count: number;
+  is_stale: boolean;
+  job: SelectionJobStatus | null;
+}
+
+export interface SelectionResetResponse {
+  item: SelectionItem;
 }
 
 export interface SelectionDeleteResponse {

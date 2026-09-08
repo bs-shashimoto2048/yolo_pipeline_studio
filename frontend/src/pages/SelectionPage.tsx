@@ -1,10 +1,10 @@
 // 画像選別画面。低品質・重複を自動検出して included/review を管理する。
 // 「削除」は実ファイル（raw/processed/サムネイル/ラベル）を消す破壊的操作（元に戻せない）。
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api/client";
 import HoverImagePreview from "../components/HoverImagePreview";
-import type { SelectionItem, SelectionSummary } from "../types";
+import type { SelectionItem, SelectionJobStatus, SelectionSummary } from "../types";
 
 const THUMB_SIZE_STORAGE_KEY = "yts_selection_thumb_size";
 const DEFAULT_THUMB_SIZE = 210; // 変更前の表示サイズ（既定値）
@@ -44,9 +44,18 @@ export default function SelectionPage() {
   const [items, setItems] = useState<SelectionItem[]>([]);
   const [summary, setSummary] = useState<SelectionSummary | null>(null);
   const [resolvedSource, setResolvedSource] = useState("raw");
+  const [createdAt, setCreatedAt] = useState<string | null>(null);
+  const [currentImageCount, setCurrentImageCount] = useState(0);
+  const [newImageCount, setNewImageCount] = useState(0);
+  const [missingImageCount, setMissingImageCount] = useState(0);
+  const [isStale, setIsStale] = useState(false);
   const [filter, setFilter] = useState<Filter>("all");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // 実行中(または直近)のジョブ進捗。差分更新/完全再生成の実行中はボタンを
+  // 無効化し、二重実行をUI側でも防ぐ（バックエンドも409で拒否する）。
+  const [job, setJob] = useState<SelectionJobStatus | null>(null);
+  const pollingRef = useRef(false);
   // 回転後にサムネ/画像のブラウザキャッシュを無効化して再取得させる
   const [bust, setBust] = useState(0);
 
@@ -56,6 +65,12 @@ export default function SelectionPage() {
       setItems(r.items);
       setSummary(r.summary);
       setResolvedSource(r.source);
+      setCreatedAt(r.created_at);
+      setCurrentImageCount(r.current_image_count);
+      setNewImageCount(r.new_image_count);
+      setMissingImageCount(r.missing_image_count);
+      setIsStale(r.is_stale);
+      setJob(r.job);
     } catch {
       /* 未実行 */
     }
@@ -63,24 +78,75 @@ export default function SelectionPage() {
 
   useEffect(() => {
     load();
+    return () => {
+      pollingRef.current = false;
+    };
   }, [name]);
 
-  async function run() {
+  async function pollUntilDone() {
+    pollingRef.current = true;
+    try {
+      // 最大10分（数千枚規模でも十分な余裕を持たせる）。
+      for (let i = 0; i < 3000; i++) {
+        if (!pollingRef.current) return;
+        await new Promise((r) => setTimeout(r, 500));
+        const s = await api.getSelectionRunStatus(name);
+        setJob(s);
+        if (s.status === "completed" || s.status === "failed") {
+          if (s.status === "failed") setError(s.message ?? "画像選別に失敗しました。");
+          await load();
+          return;
+        }
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      pollingRef.current = false;
+      setBusy(false);
+    }
+  }
+
+  async function startRun(mode: "diff" | "full") {
+    if (busy || job?.status === "running" || job?.status === "queued") return;
     setBusy(true);
     setError("");
     try {
       const r = await api.runSelection(name, {
         source, min_width: minW, min_height: minH,
         blur_threshold: blurT, dark_threshold: darkT, bright_threshold: brightT,
-        detect_duplicates: detectDup, overwrite: true,
+        detect_duplicates: detectDup, mode,
       });
-      setSummary(r.summary);
-      setResolvedSource(r.source);
+      setJob(r.job);
+      await pollUntilDone();
+    } catch (e) {
+      setError(String(e));
+      setBusy(false);
+    }
+  }
+
+  function runDiff() {
+    startRun("diff");
+  }
+
+  function runFull() {
+    if (
+      !window.confirm(
+        "完全再生成を行うと、既存の全画像の判定が現在の閾値で自動判定に置き換わり、\n" +
+          "手動で変更した included/review の判定はすべて失われます（元に戻せません）。\n" +
+          "続行しますか？"
+      )
+    )
+      return;
+    startRun("full");
+  }
+
+  async function resetToAuto(item: SelectionItem) {
+    setError("");
+    try {
+      await api.resetSelectionToAuto(name, item.image_id);
       await load();
     } catch (e) {
       setError(String(e));
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -141,6 +207,10 @@ export default function SelectionPage() {
   const statusLabel = (s: string) =>
     s === "included" ? "✓ 採用" : s === "excluded" ? "✕ 除外（旧データ）" : "△ 要確認";
 
+  const jobRunning = job?.status === "running" || job?.status === "queued";
+  const sourceLabelOf = (s: string) =>
+    s === "manual" ? "手動" : s === "unknown" ? "由来不明（旧データ）" : null;
+
   return (
     <div className="page">
       <h1>画像選別: {name}</h1>
@@ -168,7 +238,21 @@ export default function SelectionPage() {
           <label className="field">dark_threshold<input type="number" value={darkT} onChange={(e) => setDarkT(Number(e.target.value))} /></label>
           <label className="field">bright_threshold<input type="number" value={brightT} onChange={(e) => setBrightT(Number(e.target.value))} /></label>
           <label className="sel-dup"><input type="checkbox" checked={detectDup} onChange={(e) => setDetectDup(e.target.checked)} /> 重複検出</label>
-          <button onClick={run} disabled={busy}>{busy ? "実行中…" : "チェック実行"}</button>
+          <button
+            onClick={runDiff}
+            disabled={busy || jobRunning}
+            title="新規に追加された画像だけを自動判定します。既存の手動判定（included/review変更分）はそのまま保持されます。"
+          >
+            {jobRunning && job?.mode === "diff" ? "実行中…" : "差分更新"}
+          </button>
+          <button
+            className="sel-act danger"
+            onClick={runFull}
+            disabled={busy || jobRunning}
+            title="全画像を今の閾値で判定し直します。手動判定（included/review変更分）はすべて失われます。"
+          >
+            {jobRunning && job?.mode === "full" ? "実行中…" : "完全再生成"}
+          </button>
           <span className="sel-settings-sep" />
           <label className="field sel-size-field" title="見た目のみの設定です。チェック結果には影響しません">
             表示サイズ
@@ -184,13 +268,29 @@ export default function SelectionPage() {
           </label>
         </div>
         {error && <div className="error">{error}</div>}
+        {jobRunning && (
+          <div className="muted">
+            {job?.mode === "full" ? "完全再生成" : "差分更新"}実行中…
+            {job && job.total_count > 0 && ` (${job.processed_count} / ${job.total_count})`}
+          </div>
+        )}
       </details>
 
       {summary && (
         <>
-          {/* サマリー: 色分けカウント（included=良 / excluded・review・警告=要確認） */}
+          {/* 鮮度: 最終実行日時と、実ファイルとの差分（未反映件数）を表示する。
+              これが無いと、選別結果がいつ生成されたものか利用者から分からず、
+              撮影等で画像が追加され続けても気づけない（Issue #11）。 */}
           <div className="sel-summary-head">
             <span className="muted">ソース: {resolvedSource}</span>
+            {createdAt && <span className="muted"> ・ 最終実行: {createdAt}</span>}
+            <span className="muted"> ・ 現在の画像数: {currentImageCount}</span>
+            {isStale && (
+              <span className="warn">
+                {" "}
+                ⚠ 未反映あり（新規 {newImageCount}件 / 削除 {missingImageCount}件）— 「差分更新」で反映できます
+              </span>
+            )}
           </div>
           <div className="analysis-counts sel-counts">
             {[
@@ -227,6 +327,14 @@ export default function SelectionPage() {
             {view.map((it) => (
               <figure key={it.image_id} className={"thumb sel-card status-" + it.status}>
                 <span className={"sel-status-badge " + statusClass(it.status)}>{statusLabel(it.status)}</span>
+                {sourceLabelOf(it.status_source) && (
+                  <span
+                    className="sel-status-badge muted"
+                    title="この判定の由来（auto=自動判定 / manual=手動変更 / unknown=このIssue以前の旧データ）"
+                  >
+                    {sourceLabelOf(it.status_source)}
+                  </span>
+                )}
                 <HoverImagePreview
                   thumbSrc={`${api.thumbnailUrl(name, it.image_name, it.source)}&v=${bust}`}
                   fullSrc={`${api.imageUrl(name, it.image_name, it.source)}&v=${bust}`}
@@ -254,6 +362,15 @@ export default function SelectionPage() {
                     >
                       削除
                     </button>
+                    {it.status_source !== "auto" && (
+                      <button
+                        className="sel-act secondary"
+                        title="この画像だけ、現在の閾値で再解析して自動判定に戻します"
+                        onClick={() => resetToAuto(it)}
+                      >
+                        自動判定に戻す
+                      </button>
+                    )}
                     <span className="sel-act-sep" />
                     <button className="sel-act secondary" title="反時計90°" onClick={() => rotate(it, 90)}>↺</button>
                     <button className="sel-act secondary" title="時計90°" onClick={() => rotate(it, -90)}>↻</button>

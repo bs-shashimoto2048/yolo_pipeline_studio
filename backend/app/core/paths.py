@@ -152,6 +152,19 @@ def selection_path(name: str) -> Path:
     return project_dir(name) / "selection" / "selection.json"
 
 
+def selection_job_path(name: str) -> Path:
+    """画像選別の非同期実行ジョブ（別プロセスのワーカー）の状態ファイル。
+
+    selection.json（結果本体）とは別ファイルにする（capture/predict等の
+    job.jsonと結果ファイルを分ける既存パターンと同じ考え方）。
+    """
+    return project_dir(name) / "selection" / "run_job.json"
+
+
+def selection_log_path(name: str) -> Path:
+    return project_dir(name) / "selection" / "run.log"
+
+
 def exports_dir(name: str) -> Path:
     return project_dir(name) / "exports"
 

@@ -38,6 +38,8 @@ import type {
   PreprocessSettings,
   SelectionDeleteResponse,
   SelectionGetResponse,
+  SelectionJobStatus,
+  SelectionResetResponse,
   SelectionRotateResponse,
   SelectionRunRequest,
   SelectionRunResponse,
@@ -704,6 +706,8 @@ export const api = {
     name: string,
     req: SelectionRunRequest
   ): Promise<SelectionRunResponse> {
+    // 実行は非同期ジョブとして開始される（202）。完了はgetSelectionRunStatusで
+    // ポーリングして確認する（7,000枚規模でもHTTPをブロックしないため）。
     return handle(
       await fetch(`${BASE}/projects/${name}/selection/run`, {
         method: "POST",
@@ -713,18 +717,32 @@ export const api = {
     );
   },
 
+  async getSelectionRunStatus(name: string): Promise<SelectionJobStatus> {
+    return handle(await fetch(`${BASE}/projects/${name}/selection/run/status`));
+  },
+
   async updateSelectionStatus(
     name: string,
     imageId: string,
     status: string,
     manualReason?: string
-  ): Promise<{ image_id: string; status: string; manual_reason: string | null }> {
+  ): Promise<{ image_id: string; status: string; status_source: string; manual_reason: string | null }> {
+    // status_source はサーバー側が常に"manual"へ強制する（クライアントからは指定できない）。
     return handle(
       await fetch(`${BASE}/projects/${name}/selection/images/${encodeURIComponent(imageId)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status, manual_reason: manualReason ?? null }),
       })
+    );
+  },
+
+  async resetSelectionToAuto(name: string, imageId: string): Promise<SelectionResetResponse> {
+    return handle(
+      await fetch(
+        `${BASE}/projects/${name}/selection/images/${encodeURIComponent(imageId)}/reset-to-auto`,
+        { method: "POST" }
+      )
     );
   },
 
