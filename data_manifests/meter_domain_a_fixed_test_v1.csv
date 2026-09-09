@@ -1,0 +1,30 @@
+image_stem,relative_path,physical_meter_id,source_session,domain,full_reading_gt,digit_count,capture_condition_note,fixed_at,purpose
+src_002_20260818_110000,raw/images/src_002_20260818_110000.jpg,meter_Y_cam192.168.25.212,src_002,A,0214943,7,屋内固定カメラ・照明一定(条件多様性なし),2026-09-09,test
+src_002_20260818_120200,raw/images/src_002_20260818_120200.jpg,meter_Y_cam192.168.25.212,src_002,A,0214945,7,屋内固定カメラ・照明一定(条件多様性なし),2026-09-09,test
+src_002_20260818_121000,raw/images/src_002_20260818_121000.jpg,meter_Y_cam192.168.25.212,src_002,A,0214946,7,屋内固定カメラ・照明一定(条件多様性なし),2026-09-09,test
+src_002_20260818_125800,raw/images/src_002_20260818_125800.jpg,meter_Y_cam192.168.25.212,src_002,A,0214947,7,屋内固定カメラ・照明一定(条件多様性なし),2026-09-09,test
+src_002_20260818_130000,raw/images/src_002_20260818_130000.jpg,meter_Y_cam192.168.25.212,src_002,A,0214948,7,屋内固定カメラ・照明一定(条件多様性なし),2026-09-09,test
+src_002_20260818_150200,raw/images/src_002_20260818_150200.jpg,meter_Y_cam192.168.25.212,src_002,A,0214950,7,屋内固定カメラ・照明一定(条件多様性なし),2026-09-09,test
+src_002_20260818_150800,raw/images/src_002_20260818_150800.jpg,meter_Y_cam192.168.25.212,src_002,A,0214951,7,屋内固定カメラ・照明一定(条件多様性なし),2026-09-09,test
+src_002_20260818_154800,raw/images/src_002_20260818_154800.jpg,meter_Y_cam192.168.25.212,src_002,A,0214952,7,屋内固定カメラ・照明一定(条件多様性なし),2026-09-09,test
+src_002_20260819_150000,raw/images/src_002_20260819_150000.jpg,meter_Y_cam192.168.25.212,src_002,A,0214960,7,屋内固定カメラ・照明一定;Checkpoint1Cで新規annotation,2026-09-09,test
+src_002_20260901_150000,raw/images/src_002_20260901_150000.jpg,meter_Y_cam192.168.25.212,src_002,A,0215189,7,屋内固定カメラ・照明一定;Checkpoint1Cで新規annotation,2026-09-09,test
+src_002_20260902_200000,raw/images/src_002_20260902_200000.jpg,meter_Y_cam192.168.25.212,src_002,A,0215218,7,屋内固定カメラ・照明一定;Checkpoint1Cで新規annotation,2026-09-09,test
+src_002_20260903_000000,raw/images/src_002_20260903_000000.jpg,meter_Y_cam192.168.25.212,src_002,A,0215218,7,屋内固定カメラ・照明一定;Checkpoint1Cで新規annotation;902_200000とreading重複,2026-09-09,test
+src_002_20260903_120000,raw/images/src_002_20260903_120000.jpg,meter_Y_cam192.168.25.212,src_002,A,0215229,7,屋内固定カメラ・照明一定;Checkpoint1Cで新規annotation,2026-09-09,test
+src_002_20260904_040000,raw/images/src_002_20260904_040000.jpg,meter_Y_cam192.168.25.212,src_002,A,0215239,7,屋内固定カメラ・照明一定;Checkpoint1Cで新規annotation,2026-09-09,test
+src_002_20260904_180000,raw/images/src_002_20260904_180000.jpg,meter_Y_cam192.168.25.212,src_002,A,0215257,7,屋内固定カメラ・照明一定;Checkpoint1Dで0215257group(6枚)の代表(起点)として採用決定,2026-09-09,test
+src_002_20260905_100000,raw/images/src_002_20260905_100000.jpg,meter_Y_cam192.168.25.212,src_002,A,0215257,7,屋内固定カメラ・照明一定;Checkpoint1Dで0215257group内の冗長画像として不採用決定(条件差なし),,dropped_redundant_reading
+src_002_20260905_230000,raw/images/src_002_20260905_230000.jpg,meter_Y_cam192.168.25.212,src_002,A,0215257,7,屋内固定カメラ・照明一定;Checkpoint1Dで0215257group内の冗長画像として不採用決定(条件差なし),,dropped_redundant_reading
+src_002_20260906_070000,raw/images/src_002_20260906_070000.jpg,meter_Y_cam192.168.25.212,src_002,A,0215257,7,屋内固定カメラ・照明一定;Checkpoint1Dで0215257group内の冗長画像として不採用決定(条件差なし),,dropped_redundant_reading
+src_002_20260906_160000,raw/images/src_002_20260906_160000.jpg,meter_Y_cam192.168.25.212,src_002,A,0215257,7,屋内固定カメラ・照明一定;Checkpoint1Dで0215257group内の冗長画像として不採用決定(条件差なし),,dropped_redundant_reading
+src_002_20260907_010000,raw/images/src_002_20260907_010000.jpg,meter_Y_cam192.168.25.212,src_002,A,0215257,7,屋内固定カメラ・照明一定;Checkpoint1Dで0215257group(6枚)の代表(終点、約55時間後)として採用決定,2026-09-09,test
+src_002_20260907_130000,raw/images/src_002_20260907_130000.jpg,meter_Y_cam192.168.25.212,src_002,A,0215293,7,屋内固定カメラ・照明一定;Checkpoint1Cで新規annotation,2026-09-09,test
+src_002_20260908_050000,raw/images/src_002_20260908_050000.jpg,meter_Y_cam192.168.25.212,src_002,A,0215297,7,屋内固定カメラ・照明一定;Checkpoint1Cで新規annotation,2026-09-09,test
+src_002_20260908_090000,raw/images/src_002_20260908_090000.jpg,meter_Y_cam192.168.25.212,src_002,A,0215309,7,屋内固定カメラ・照明一定;Checkpoint1Cで新規annotation,2026-09-09,test
+meter_002,raw/images/meter_002.png,meter_Z_unknown_expiry2027-10,meter_002_static,A,0257605,7,静止画1枚;他個体と別使用期限ラベル(2027年10月)で識別;撮影条件不明,2026-09-09,test
+meter_001,raw/images/meter_001.png,meter_Y_cam192.168.25.212,meter_001_static,A,0214930,7,静止画1枚;src_002と同一物理個体(使用期限2027年02月ラベル一致);手動撮影でsrc_002固定カメラとは構図/ズームが異なり撮影条件に意味のある差あり;Checkpoint1Dで採用決定,2026-09-09,test
+src_001_20260818_140200,raw/images/src_001_20260818_140200.jpg,meter_X_cam192.168.25.213,src_001,A,0023607,7,目視確認によりcapture_001/src_003と同一物理個体(使用期限2028年02月ラベル一致)・Train側支配個体と同一のためTest不採用,,excluded_leakage
+meter_004,raw/images/meter_004.png,meter_X_cam192.168.25.213,meter_004_static,A,0023607,7,目視確認によりcapture_001/src_003と同一物理個体(使用期限2028年02月ラベル一致)・Train側支配個体と同一のためTest不採用,,excluded_leakage
+meter_003,raw/images/meter_003.png,unknown_domain_b_1,meter_003_static,B,,,機械式ドラム型カウンタ(Domain B)。Domain Aから除外。Full Reading GTは本Checkpoint対象外,,excluded_domain_b
+src_004_prefix_all,raw/images/src_004_*,unknown_domain_b_2,src_004,B,,,機械式ドラム型カウンタ(Domain B)。annotation済み143枚全件・raw2427枚全件を含むprefix全体を除外。個別行には展開せず代表1行で記録,,excluded_domain_b
