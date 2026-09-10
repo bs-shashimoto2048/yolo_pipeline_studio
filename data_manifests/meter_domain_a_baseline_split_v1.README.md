@@ -1,6 +1,18 @@
 # Domain A Provisional Baseline Train/Val Split v1（`meter_domain_a_baseline_split_v1.csv`）
 
-Issue #1 Checkpoint 2A〜2Bで設計した、`meter`プロジェクトDomain Aの**暫定Baseline**Train/Val split manifestです。
+## ⚠️ INVALIDATED（Issue #1 Checkpoint 3E/3I時点）
+
+**この`meter_domain_a_baseline_split_v1.csv`はINVALIDATEDです。学習・評価の基準として使用しないでください。**
+
+- **理由**: Checkpoint 3Eの画像単位再監査で、当時「個体X」として扱っていたTrain(`src_003`系)+Val(`capture_001`+`src_003_v3`)の物理メーター識別が誤りだったと判明しました。実際にはTrainの大半（`src_003`）はFixed Test v1の`meter_002`と同一個体（真の個体Z）であり、Valの`capture_001`もW/Y/Z/Domain Bが混在した非単一個体データでした。
+- Val内にDomain B画像（機械式ドラム型メーター）が混入していたことも確認されています。
+- **Checkpoint 3A（本splitでの学習）・Checkpoint 3B（Fixed Test v1評価）の結果は、historical/reference onlyであり、正式baselineとしては扱いません。**
+- 後継: `meter_domain_a_train_val_v2.csv`（Checkpoint 3F〜3Iで再設計・固定、Train=meter_Z 500 / Val=meter_W 9、physical-meter-disjoint）
+- このCSVファイル自体は削除・改変していません（監査証跡として保持）。
+
+---
+
+Issue #1 Checkpoint 2A〜2Bで設計した、`meter`プロジェクトDomain Aの**暫定Baseline**Train/Val split manifestです。（**上記のとおり、その後INVALIDATEDと判明**）
 
 ## 構成
 

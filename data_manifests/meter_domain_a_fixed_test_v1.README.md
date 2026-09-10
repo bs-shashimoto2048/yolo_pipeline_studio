@@ -1,6 +1,18 @@
 # Domain A Fixed Test Set v1（`meter_domain_a_fixed_test_v1.csv`）
 
-Issue #1 Checkpoint 1A〜1Eで設計・検証・固定した、`meter`プロジェクトDomain A（7セグLCD）の公式Fixed Test Setです。
+## ⚠️ INVALIDATED（Issue #1 Checkpoint 3E/3I時点）
+
+**この`meter_domain_a_fixed_test_v1.csv`はINVALIDATEDです。ベンチマーク用途・Train/Val設計の基準として使用しないでください。**
+
+- **理由**: Checkpoint 3Eの画像単位再監査で、physical meter identityの誤認が判明しました。当時「個体Y」「個体Z」として扱っていたTest個体のうち、`meter_002`（個体Z扱い）が、Baseline Train/Val（`src_003`/`src_003_v3`/`capture_001`）と**同一の物理メーター**であることが確認され、Train→Testのphysical-meter leakageが確定しました。
+- `capture_001`（Val採用分含む）は単一物理個体ではなく、meter_W/meter_Y/meter_Z/Domain Bが1セッション内に混在した「初期テスト撮影」であったことも判明しています。
+- **Checkpoint 3A（Baseline学習）・Checkpoint 3B（Fixed Test v1評価、Full Reading Exact Match 0/21）の結果は、historical/reference onlyとして保持し、正式baselineとしては扱いません。**
+- 後継: `meter_domain_a_fixed_test_v2.csv`（Checkpoint 3F〜3Iで再設計・固定、physical-meter-disjoint、Test=meter_Yのみ）
+- このCSVファイル自体は削除・改変していません（監査証跡として保持）。
+
+---
+
+Issue #1 Checkpoint 1A〜1Eで設計・検証・固定した、`meter`プロジェクトDomain A（7セグLCD）の公式Fixed Test Setです。（**上記のとおり、その後INVALIDATEDと判明**）
 
 ## 固定内容（v1、fixed_at=2026-09-09）
 
