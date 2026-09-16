@@ -36,6 +36,11 @@ const DEFAULTS: PreprocessSettings = {
   clahe_enabled: false,
   clahe_clip_limit: 2.0,
   clahe_tile_grid_size: 8,
+  roi_enabled: false,
+  roi_x0: null,
+  roi_y0: null,
+  roi_x1: null,
+  roi_y1: null,
 };
 
 export default function PreprocessPage() {
@@ -96,6 +101,8 @@ export default function PreprocessPage() {
     if (!previewTarget) return;
     if (previewTimer.current) window.clearTimeout(previewTimer.current);
     previewTimer.current = window.setTimeout(() => {
+      // ROI入力途中（値不足・大小関係不正）はbackendへ投げず、入力完了を待つ
+      if (s.roi_enabled && roiError) return;
       runPreview();
     }, 250);
     return () => {
@@ -117,6 +124,34 @@ export default function PreprocessPage() {
       setBusy(false);
     }
   }
+
+  // ROI座標のfront-side validation（大小関係・非負のみ。画像サイズ上限はbackendが最終判定）。
+  const roiError = (() => {
+    if (!s.roi_enabled) return "";
+    const { roi_x0, roi_y0, roi_x1, roi_y1 } = s;
+    if (roi_x0 == null || roi_y0 == null || roi_x1 == null || roi_y1 == null) {
+      return "ROI有効時はx0/y0/x1/y1をすべて指定してください。";
+    }
+    if (roi_x0 < 0 || roi_y0 < 0) return "x0/y0は0以上を指定してください。";
+    if (roi_x0 >= roi_x1) return "x0 < x1 を満たす必要があります。";
+    if (roi_y0 >= roi_y1) return "y0 < y1 を満たす必要があります。";
+    return "";
+  })();
+
+  const roiField = (key: "roi_x0" | "roi_y0" | "roi_x1" | "roi_y1", label: string) => (
+    <label className="field">
+      {label}
+      <input
+        type="number"
+        min={0}
+        step={1}
+        value={s[key] ?? ""}
+        onChange={(e) =>
+          set(key, (e.target.value === "" ? null : Number(e.target.value)) as never)
+        }
+      />
+    </label>
+  );
 
   const numField = (
     key: keyof PreprocessSettings,
@@ -216,6 +251,24 @@ export default function PreprocessPage() {
           <h3 className="pp-opts-title">処理オプション</h3>
           <div className="pp-opts">
             {opt(
+              "roi_enabled",
+              "固定ROI（先頭でcrop、raw pixel基準）",
+              <>
+                <div className="row">
+                  {roiField("roi_x0", "x0")}
+                  {roiField("roi_y0", "y0")}
+                  {roiField("roi_x1", "x1")}
+                  {roiField("roi_y1", "y1")}
+                </div>
+                <p className="muted pp-hint">
+                  元画像（raw）のpixel座標。x0&lt;x1・y0&lt;y1が必要です。画像サイズを超える範囲は
+                  実行時にエラーになります（自動での切り詰めは行いません）。
+                </p>
+                {roiError && <div className="error">{roiError}</div>}
+              </>
+            )}
+
+            {opt(
               "resize_enabled",
               "リサイズ",
               <div className="row">
@@ -279,7 +332,7 @@ export default function PreprocessPage() {
           </div>
 
           <div className="row pp-run">
-            <button onClick={run} disabled={busy || !s.job_name.trim()}>
+            <button onClick={run} disabled={busy || !s.job_name.trim() || !!roiError}>
               {busy ? "実行中…" : "前処理を実行"}
             </button>
           </div>

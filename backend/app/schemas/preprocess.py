@@ -25,6 +25,14 @@ class PreprocessSettings(BaseModel):
     padding: bool = True
     padding_color: str = "black"  # black | white | gray
 
+    # 固定ROI（raw pixel基準）。有効時は処理列の先頭でcropを行う（Checkpoint 5AE）。
+    # 座標は元画像（raw）のpixel座標。silent clampはせず、範囲外は明示エラーとする。
+    roi_enabled: bool = False
+    roi_x0: int | None = None
+    roi_y0: int | None = None
+    roi_x1: int | None = None
+    roi_y1: int | None = None
+
     brightness_enabled: bool = False
     brightness: float = 0.0  # -100 ～ 100
 

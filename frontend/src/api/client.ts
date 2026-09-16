@@ -590,13 +590,20 @@ export const api = {
     name: string,
     trainJobId: string,
     weightType: string,
-    memo: string
+    memo: string,
+    conf?: number | null
   ): Promise<SelectedModelResponse> {
     return handle(
       await fetch(`${BASE}/projects/${name}/models/selected`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ train_job_id: trainJobId, weight_type: weightType, memo }),
+        body: JSON.stringify({
+          train_job_id: trainJobId,
+          weight_type: weightType,
+          memo,
+          // undefinedは送らない（既存メモ操作等の挙動を変えない）。nullは明示的にconf未設定を意味する。
+          ...(conf !== undefined ? { conf } : {}),
+        }),
       })
     );
   },

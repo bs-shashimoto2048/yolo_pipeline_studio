@@ -248,6 +248,12 @@ export interface PreprocessSettings {
   clahe_enabled: boolean;
   clahe_clip_limit: number;
   clahe_tile_grid_size: number;
+  // 固定ROI（raw pixel基準）。有効時は処理列の先頭でcropする（Checkpoint 5AE/5AG）。
+  roi_enabled: boolean;
+  roi_x0: number | null;
+  roi_y0: number | null;
+  roi_x1: number | null;
+  roi_y1: number | null;
 }
 
 export interface PreprocessRunResponse {
@@ -541,18 +547,20 @@ export interface MetricsResponse {
 
 export interface PredictJobCreateRequest {
   predict_job_name: string;
-  train_job_id: string;
-  weight_type: string;
+  // train_job_id/weight_type/conf省略時はproject既定（selected model）へフォールバックする
+  // （Checkpoint 5AE/5AG）。省略する場合はキー自体を送らない（空文字ではなくundefined）。
+  train_job_id?: string;
+  weight_type?: string;
   source_type: string;
   image_ids: string[];
-  conf: number;
+  conf?: number;
   iou: number;
   imgsz: number;
   device: string;
   save_txt: boolean;
   save_conf: boolean;
   overwrite: boolean;
-  preprocess_mode: string;
+  preprocess_mode: string; // none | latest | selected
 }
 
 export interface PredictJobStartResponse {
@@ -588,6 +596,12 @@ export interface PredictJobInfo {
   processed_count: number | null;
   prediction_path: string | null;
   results_json_path: string | null;
+  // 実際に解決されたtrain_job_id/weight_type/confの由来（"request"|"selected_model"|"default"）
+  resolution_source?: Record<string, string> | null;
+  // preprocess_mode="latest"/"selected"の場合に実際に適用されたPreprocessSettings
+  resolved_preprocess_profile?: Record<string, unknown> | null;
+  // 実際に適用された前処理ステップの列（例: ["roi_crop","resize","grayscale","sharpen"]）
+  processing_order?: string[] | null;
 }
 
 export interface PredictJobListResponse {
@@ -1031,6 +1045,11 @@ export interface SelectedModelResponse {
   model_path: string;
   selected_at: string | null;
   memo: string;
+  // 推論時にこのモデルへフォールバックする際の既定confidence（Checkpoint 5AE/5AG）
+  conf?: number | null;
+  // 推論時にこのモデルへフォールバックする際の前処理設定（PreprocessSettings相当）。
+  // 今回のUIでは編集対象にせず、型追随のみ。
+  preprocess_profile?: Record<string, unknown> | null;
 }
 
 export type AugmentationParams = Record<string, number>;

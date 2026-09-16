@@ -63,6 +63,9 @@ export default function PredictPage() {
   // フォーム（初期値は task.md 準拠）
   const [trainJobId, setTrainJobId] = useState("");
   const [weightType, setWeightType] = useState("best");
+  // ON: train_job_id/weight_type/confをrequestから省略し、project既定（selected model）へ
+  // フォールバックさせる（Checkpoint 5AG）。OFF: 従来どおり明示指定。
+  const [useSelectedDefault, setUseSelectedDefault] = useState(false);
   const [predictName, setPredictName] = useState("predict_001");
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [conf, setConf] = useState(0.25);
@@ -246,11 +249,12 @@ export default function PredictPage() {
     try {
       const res = await api.startPredictJob(name, {
         predict_job_name: predictName.trim(),
-        train_job_id: trainJobId,
-        weight_type: weightType,
+        // ONの場合はキー自体を送らない（undefined）。空文字ではなくundefinedにすることで
+        // backend側のproject既定（selected model）フォールバックが働く。
+        ...(useSelectedDefault ? {} : { train_job_id: trainJobId, weight_type: weightType }),
         source_type: "project_images",
         image_ids: Array.from(chosen),
-        conf,
+        ...(useSelectedDefault ? {} : { conf }),
         iou,
         imgsz,
         device,
@@ -405,10 +409,23 @@ export default function PredictPage() {
           <div className="predict-setup-cols">
             {/* 左(2): 実行ジョブ設定 */}
             <div className="predict-setup-form">
+              <label className="pp-inline-check" style={{ marginBottom: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={useSelectedDefault}
+                  onChange={(e) => setUseSelectedDefault(e.target.checked)}
+                />
+                selected model既定を使う（学習ジョブ/weight/confをprojectの採用モデル設定へ委ねる）
+              </label>
               <div className="predict-fields">
                 <label className="field field-wide">
                   学習ジョブ
-                  <select value={trainJobId} onChange={(e) => setTrainJobId(e.target.value)} required>
+                  <select
+                    value={trainJobId}
+                    onChange={(e) => setTrainJobId(e.target.value)}
+                    required={!useSelectedDefault}
+                    disabled={useSelectedDefault}
+                  >
                     <option value="" disabled>
                       選択してください
                     </option>
@@ -421,7 +438,11 @@ export default function PredictPage() {
                 </label>
                 <label className="field">
                   weight
-                  <select value={weightType} onChange={(e) => setWeightType(e.target.value)}>
+                  <select
+                    value={weightType}
+                    onChange={(e) => setWeightType(e.target.value)}
+                    disabled={useSelectedDefault}
+                  >
                     <option value="best">best</option>
                     <option value="last">last</option>
                   </select>
@@ -432,7 +453,13 @@ export default function PredictPage() {
                 </label>
                 <label className="field">
                   conf
-                  <input type="number" step="0.05" value={conf} onChange={(e) => setConf(Number(e.target.value))} />
+                  <input
+                    type="number"
+                    step="0.05"
+                    value={conf}
+                    onChange={(e) => setConf(Number(e.target.value))}
+                    disabled={useSelectedDefault}
+                  />
                 </label>
                 <label className="field">
                   iou
@@ -459,9 +486,15 @@ export default function PredictPage() {
                     <option value="latest" disabled={!preInfo?.has_processed_images}>
                       最新前処理設定を適用{preInfo?.has_processed_images ? "" : "（前処理未実行）"}
                     </option>
+                    <option value="selected">採用モデルの前処理設定を適用（selected）</option>
                   </select>
                 </label>
               </div>
+              {useSelectedDefault && (
+                <p className="muted" style={{ fontSize: "0.76rem", margin: "4px 0" }}>
+                  学習ジョブ/weight/confはprojectの採用モデル設定（Models画面）から解決されます。
+                </p>
+              )}
 
               {preprocessMode === "latest" && preInfo?.has_processed_images && (
                 <p className="muted" style={{ fontSize: "0.76rem", margin: "4px 0" }}>
@@ -481,7 +514,11 @@ export default function PredictPage() {
                 </label>
               </div>
 
-              <button type="submit" className="predict-start" disabled={busy || !trainJobId || !predictName.trim()}>
+              <button
+                type="submit"
+                className="predict-start"
+                disabled={busy || (!useSelectedDefault && !trainJobId) || !predictName.trim()}
+              >
                 {busy ? "開始中…" : "推論開始"}
               </button>
             </div>

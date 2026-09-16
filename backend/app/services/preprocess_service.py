@@ -5,6 +5,11 @@ raw/images を破壊せず processed/images に出力する。OpenCVは使わず
 タイル別ヒストグラム均等化＋クリップで近似する。
 
 処理順: グレースケール → 明るさ/コントラスト → CLAHE → シャープ化 → リサイズ。
+
+固定ROI（Checkpoint 5AE）: roi_enabled=true の場合のみ、処理列の先頭でraw pixel座標の
+crop を行い、その後は crop → リサイズ → グレースケール → 明るさ/コントラスト → CLAHE →
+シャープ化 の順とする。roi_enabled=false（既定）の場合は上記の既存処理順を一切変更しない
+（既存project・既存呼び出しとの後方互換のため）。
 """
 
 from __future__ import annotations
@@ -61,6 +66,57 @@ def _validate_resize(s: PreprocessSettings) -> None:
             raise PreprocessValidationError("resize_size は 32〜4096 で指定してください。")
     if s.binary_enabled and not (0 <= s.binary_threshold <= 255):
         raise PreprocessValidationError("binary_threshold は 0〜255 で指定してください。")
+
+
+def _validate_roi_settings(s: PreprocessSettings) -> None:
+    """ROI設定の構造的妥当性を検証する（座標の大小関係・未指定チェック）。
+    実画像サイズに対する範囲チェックは _process_one 内で画像ごとに行う（silent clamp禁止）。
+    """
+    if not s.roi_enabled:
+        return
+    if s.roi_x0 is None or s.roi_y0 is None or s.roi_x1 is None or s.roi_y1 is None:
+        raise PreprocessValidationError(
+            "roi_enabled=true の場合、roi_x0/roi_y0/roi_x1/roi_y1 をすべて指定してください。"
+        )
+    if not (0 <= s.roi_x0 < s.roi_x1):
+        raise PreprocessValidationError("roi_x0 は 0 以上、かつ roi_x0 < roi_x1 を満たす必要があります。")
+    if not (0 <= s.roi_y0 < s.roi_y1):
+        raise PreprocessValidationError("roi_y0 は 0 以上、かつ roi_y0 < roi_y1 を満たす必要があります。")
+
+
+def processing_order(s: PreprocessSettings) -> list[str]:
+    """設定から実際に適用される処理ステップの列を返す（metadata/job.json記録用）。
+    _process_one の分岐と完全に一致させること。
+    """
+    order: list[str] = []
+    if s.roi_enabled:
+        order.append("roi_crop")
+        if s.resize_enabled:
+            order.append("resize")
+        if s.grayscale_enabled:
+            order.append("grayscale")
+        if s.binary_enabled:
+            order.append("binary")
+        if s.brightness_enabled or s.contrast_enabled:
+            order.append("brightness_contrast")
+        if s.clahe_enabled:
+            order.append("clahe")
+        if s.sharpen_enabled:
+            order.append("sharpen")
+    else:
+        if s.grayscale_enabled:
+            order.append("grayscale")
+        if s.binary_enabled:
+            order.append("binary")
+        if s.brightness_enabled or s.contrast_enabled:
+            order.append("brightness_contrast")
+        if s.clahe_enabled:
+            order.append("clahe")
+        if s.sharpen_enabled:
+            order.append("sharpen")
+        if s.resize_enabled:
+            order.append("resize")
+    return order
 
 
 # ---- 画像処理ヘルパ（Pillow） ----
@@ -137,12 +193,8 @@ def _apply_resize_mode(img: Image.Image, mode: str, size: int) -> Image.Image:
     return img.resize((nw, nh))
 
 
-def _process_one(data: bytes, s: PreprocessSettings) -> Image.Image:
-    # EXIF Orientation を反映してから処理（縦横の向きを保持）
-    img = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
-
-    if s.grayscale_enabled:
-        img = img.convert("L").convert("RGB")
+def _apply_binary_brightness_clahe_sharpen(img: Image.Image, s: PreprocessSettings) -> Image.Image:
+    """2値化 → 明るさ/コントラスト → CLAHE → シャープ化（ROI有効/無効で共通の中間チェーン）。"""
     if s.binary_enabled:
         # 2値化は内部的にグレースケール化してから白黒変換（グレースケールOFFでも実施）
         thr = int(_clamp(s.binary_threshold, 0, 255))
@@ -164,15 +216,45 @@ def _process_one(data: bytes, s: PreprocessSettings) -> Image.Image:
     if s.sharpen_enabled:
         strength = _clamp(s.sharpen_strength, 0.0, 3.0)
         img = img.filter(ImageFilter.UnsharpMask(radius=2, percent=int(strength * 100), threshold=2))
-    if s.resize_enabled:
-        if s.resize_mode in ("width", "height"):
-            img = _apply_resize_mode(img, s.resize_mode, s.resize_size)
-        else:
-            # 旧仕様（後方互換）
-            img = _apply_resize_legacy(
-                img, max(1, s.resize_width), max(1, s.resize_height),
-                s.keep_aspect_ratio, s.padding, s.padding_color,
+    return img
+
+
+def _apply_resize_step(img: Image.Image, s: PreprocessSettings) -> Image.Image:
+    if not s.resize_enabled:
+        return img
+    if s.resize_mode in ("width", "height"):
+        return _apply_resize_mode(img, s.resize_mode, s.resize_size)
+    # 旧仕様（後方互換）
+    return _apply_resize_legacy(
+        img, max(1, s.resize_width), max(1, s.resize_height),
+        s.keep_aspect_ratio, s.padding, s.padding_color,
+    )
+
+
+def _process_one(data: bytes, s: PreprocessSettings) -> Image.Image:
+    # EXIF Orientation を反映してから処理（縦横の向きを保持）
+    img = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
+
+    if s.roi_enabled:
+        _validate_roi_settings(s)
+        if s.roi_x1 > img.width or s.roi_y1 > img.height:
+            raise PreprocessValidationError(
+                f"ROI範囲が画像サイズを超えています: roi=(x0={s.roi_x0}, y0={s.roi_y0}, "
+                f"x1={s.roi_x1}, y1={s.roi_y1}) image_size=({img.width}, {img.height})"
             )
+        # ROI有効時の処理順: crop -> resize -> grayscale -> brightness/contrast -> CLAHE -> sharpen
+        img = img.crop((s.roi_x0, s.roi_y0, s.roi_x1, s.roi_y1))
+        img = _apply_resize_step(img, s)
+        if s.grayscale_enabled:
+            img = img.convert("L").convert("RGB")
+        img = _apply_binary_brightness_clahe_sharpen(img, s)
+        return img
+
+    # ROI無効時: 既存処理順（grayscale -> binary/brightness/CLAHE/sharpen -> resize）を完全維持
+    if s.grayscale_enabled:
+        img = img.convert("L").convert("RGB")
+    img = _apply_binary_brightness_clahe_sharpen(img, s)
+    img = _apply_resize_step(img, s)
     return img
 
 
@@ -185,6 +267,7 @@ def run(name: str, s: PreprocessSettings) -> PreprocessRunResponse:
             "job_name は英数・アンダースコア・ハイフンのみです。"
         )
     _validate_resize(s)
+    _validate_roi_settings(s)
     out_fmt = s.output_format.lower()
     if out_fmt not in ("jpg", "jpeg", "png"):
         raise PreprocessValidationError("output_format は jpg または png です。")
@@ -251,6 +334,7 @@ def run(name: str, s: PreprocessSettings) -> PreprocessRunResponse:
         "processed_count": processed,
         "skipped_count": skipped,
         "settings": s.model_dump(),
+        "processing_order": processing_order(s),
         "items": items,
     }
     paths.processed_metadata_path(name).write_text(
@@ -282,6 +366,7 @@ def preview(name: str, image_id: str | None, s: PreprocessSettings) -> Preproces
     """設定を1枚に適用したプレビューを生成（processed/preview に保存、本体は更新しない）。"""
     _require_project(name)
     _validate_resize(s)
+    _validate_roi_settings(s)
 
     # 対象画像（指定なければ raw の先頭）
     raw = image_service.list_images(name, "raw")

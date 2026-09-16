@@ -2,25 +2,33 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
 class PredictJobCreate(BaseModel):
-    """推論ジョブ作成リクエスト。"""
+    """推論ジョブ作成リクエスト。
+
+    train_job_id / weight_type / conf は省略可（Checkpoint 5AE）。省略時は
+    project の採用モデル設定（selected_model.json）へフォールバックし、それも
+    無ければ後方互換な安全なdefault（weight_type="best", conf=0.25）を用いる。
+    明示指定は常にselected model設定より優先される。
+    """
 
     predict_job_name: str = Field(..., examples=["predict_001"])
-    train_job_id: str = Field(..., examples=["train_001"])
-    weight_type: str = "best"  # best | last
+    train_job_id: str | None = Field(default=None, examples=["train_001"])
+    weight_type: str | None = None  # best | last。省略時はselected model優先、次点で"best"
     source_type: str = "project_images"  # project_images | upload
     image_ids: list[str] = Field(default_factory=list)
-    conf: float = Field(0.25, ge=0.0, le=1.0)
+    conf: float | None = Field(default=None, ge=0.0, le=1.0)  # 省略時はselected model優先、次点で0.25
     iou: float = Field(0.7, ge=0.0, le=1.0)
     imgsz: int = Field(640, ge=32)
     device: str = "auto"
     save_txt: bool = True
     save_conf: bool = True
     overwrite: bool = False
-    preprocess_mode: str = "none"  # none | latest
+    preprocess_mode: str = "none"  # none | latest | selected（selectedはselected modelのpreprocess_profileを使用）
 
 
 class PredictJobStartResponse(BaseModel):
@@ -59,6 +67,13 @@ class PredictJobInfo(BaseModel):
     prediction_path: str | None = None
     results_json_path: str | None = None
     preprocess_mode: str | None = None
+    # 実際に解決されたtrain_job_id/weight_type/conf/preprocessの由来（Checkpoint 5AE）。
+    # 値は "request" | "selected_model" | "default" のいずれか。
+    resolution_source: dict[str, str] | None = None
+    # preprocess_mode="latest"/"selected"の場合に実際に適用されたPreprocessSettings（dict）
+    resolved_preprocess_profile: dict[str, Any] | None = None
+    # 実際に適用された前処理ステップの列（例: ["roi_crop","resize","grayscale","sharpen"]）
+    processing_order: list[str] | None = None
 
 
 class PredictJobListResponse(BaseModel):

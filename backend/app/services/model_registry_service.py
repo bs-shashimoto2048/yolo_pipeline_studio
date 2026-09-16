@@ -189,6 +189,10 @@ def set_selected(name: str, req: SelectModelRequest) -> SelectedModelResponse:
         "model_path": _rel(name, req.train_job_id, req.weight_type),
         "selected_at": selected_at,
         "memo": req.memo,
+        # 以下2件はoptional（Checkpoint 5AE）。未指定ならNoneのまま保存し、
+        # 旧形式のselected_model.json（これらのキーを持たない）との読み込み互換を維持する。
+        "conf": req.conf,
+        "preprocess_profile": req.preprocess_profile,
     }
     paths.models_dir(name).mkdir(parents=True, exist_ok=True)
     paths.selected_model_path(name).write_text(
@@ -196,7 +200,8 @@ def set_selected(name: str, req: SelectModelRequest) -> SelectedModelResponse:
     )
 
     return SelectedModelResponse(project_name=name, selected_model_id=model_id, **{
-        k: payload[k] for k in ("train_job_id", "weight_type", "model_path", "selected_at", "memo")
+        k: payload[k] for k in
+        ("train_job_id", "weight_type", "model_path", "selected_at", "memo", "conf", "preprocess_profile")
     })
 
 
@@ -213,4 +218,7 @@ def get_selected(name: str) -> SelectedModelResponse:
         model_path=sel.get("model_path", ""),
         selected_at=sel.get("selected_at"),
         memo=sel.get("memo", ""),
+        # 旧形式のselected_model.jsonにはキーが無いため .get() で安全にNone扱いにする
+        conf=sel.get("conf"),
+        preprocess_profile=sel.get("preprocess_profile"),
     )

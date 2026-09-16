@@ -31,7 +31,10 @@ from ..schemas.prediction import (
     PredictResultsResponse,
     PredictLogResponse,
 )
-from . import preprocess_service
+from ..schemas.model_registry import SelectedModelResponse
+from ..schemas.preprocess import PreprocessSettings
+from . import model_registry_service, preprocess_service
+from .model_registry_service import ModelError as _ModelError
 from .project_service import ProjectError, project_exists
 
 # backend/app/services/prediction_service.py → backend/workers/predict_worker.py
@@ -117,6 +120,61 @@ def _read_job(name: str, predict_job_id: str) -> dict | None:
         return None
 
 
+_SAFE_DEFAULT_WEIGHT_TYPE = "best"
+_SAFE_DEFAULT_CONF = 0.25
+
+
+def _get_selected_model_or_none(name: str) -> SelectedModelResponse | None:
+    """採用モデル設定を返す。未設定/読み込み不可の場合はNone（呼び出し元でsafe defaultへ）。"""
+    try:
+        return model_registry_service.get_selected(name)
+    except _ModelError:
+        return None
+
+
+def _resolve_train_weight_conf(
+    name: str, req: PredictJobCreate
+) -> tuple[str, str, float, dict[str, str], SelectedModelResponse | None]:
+    """train_job_id/weight_type/confを 明示指定 > selected model > 安全なdefault の優先順位で解決する。"""
+    selected = _get_selected_model_or_none(name)
+    source: dict[str, str] = {}
+
+    if req.train_job_id is not None:
+        train_job_id = req.train_job_id
+        source["train_job_id"] = "request"
+    elif selected is not None:
+        train_job_id = selected.train_job_id
+        source["train_job_id"] = "selected_model"
+    else:
+        # train_job_idは旧来必須だったため、代わりに選べる安全なdefaultは存在しない。
+        # 旧挙動（未指定はエラー）と互換にする。
+        raise PredictValidationError(
+            "train_job_id が指定されておらず、採用モデル（selected model）も設定されていません。"
+        )
+
+    if req.weight_type is not None:
+        weight_type = req.weight_type
+        source["weight_type"] = "request"
+    elif selected is not None and selected.weight_type:
+        weight_type = selected.weight_type
+        source["weight_type"] = "selected_model"
+    else:
+        weight_type = _SAFE_DEFAULT_WEIGHT_TYPE
+        source["weight_type"] = "default"
+
+    if req.conf is not None:
+        conf = req.conf
+        source["conf"] = "request"
+    elif selected is not None and selected.conf is not None:
+        conf = selected.conf
+        source["conf"] = "selected_model"
+    else:
+        conf = _SAFE_DEFAULT_CONF
+        source["conf"] = "default"
+
+    return train_job_id, weight_type, conf, source, selected
+
+
 def start_job(name: str, req: PredictJobCreate) -> PredictJobStartResponse:
     _require_project(name)
 
@@ -124,23 +182,26 @@ def start_job(name: str, req: PredictJobCreate) -> PredictJobStartResponse:
         raise PredictValidationError(
             "predict_job_name は英数・アンダースコア・ハイフンのみ使用できます。"
         )
-    if req.weight_type not in ("best", "last"):
-        raise PredictValidationError("weight_type は best または last です。")
     if req.source_type != "project_images":
         raise PredictValidationError(
             "source_type は現在 project_images のみ対応しています。"
         )
 
+    # --- train_job_id/weight_type/conf の解決（明示指定 > selected model > 安全なdefault） ---
+    train_job_id, weight_type, conf, resolution_source, selected = _resolve_train_weight_conf(name, req)
+    if weight_type not in ("best", "last"):
+        raise PredictValidationError("weight_type は best または last です。")
+
     # --- 事前チェック ---
-    train_dir = paths.train_job_dir(name, req.train_job_id)
+    train_dir = paths.train_job_dir(name, train_job_id)
     if not train_dir.exists():
         raise PredictNotFoundError(
-            f"学習ジョブ '{req.train_job_id}' が見つかりません。"
+            f"学習ジョブ '{train_job_id}' が見つかりません。"
         )
-    weight = train_dir / "weights" / f"{req.weight_type}.pt"
+    weight = train_dir / "weights" / f"{weight_type}.pt"
     if not weight.exists():
         raise PredictValidationError(
-            f"モデル '{req.weight_type}.pt' が見つかりません: "
+            f"モデル '{weight_type}.pt' が見つかりません: "
             f"{weight.relative_to(paths.project_dir(name)).as_posix()}"
         )
     if not req.image_ids:
@@ -157,8 +218,10 @@ def start_job(name: str, req: PredictJobCreate) -> PredictJobStartResponse:
         _safe_rmtree(pred_dir)
 
     # --- 推論前処理モードの解決 ---
-    if req.preprocess_mode not in ("none", "latest"):
-        raise PredictValidationError("preprocess_mode は none または latest です。")
+    # "selected": 採用モデル（selected_model.json）のpreprocess_profileを使用（Checkpoint 5AE）。
+    # src004のROI候補など、モデルと前処理設定を一体で切り替える用途を想定。
+    if req.preprocess_mode not in ("none", "latest", "selected"):
+        raise PredictValidationError("preprocess_mode は none / latest / selected のいずれかです。")
     pre_settings = None
     if req.preprocess_mode == "latest":
         pre_settings = preprocess_service.load_latest_settings(name)
@@ -166,6 +229,16 @@ def start_job(name: str, req: PredictJobCreate) -> PredictJobStartResponse:
             raise PredictValidationError(
                 "最新前処理設定がありません（前処理を実行してから 'latest' を選択してください）。"
             )
+    elif req.preprocess_mode == "selected":
+        profile = selected.preprocess_profile if selected is not None else None
+        if not profile:
+            raise PredictValidationError(
+                "採用モデルに前処理設定（preprocess_profile）が登録されていません。"
+            )
+        try:
+            pre_settings = PreprocessSettings(**profile)
+        except Exception as e:  # noqa: BLE001
+            raise PredictValidationError(f"採用モデルのpreprocess_profileが不正です: {e!r}") from e
 
     # --- フォルダ作成 + 入力画像コピー ---
     inputs_dir = pred_dir / "inputs"
@@ -187,7 +260,10 @@ def start_job(name: str, req: PredictJobCreate) -> PredictJobStartResponse:
             try:
                 result = preprocess_service.apply(src.read_bytes(), pre_settings)
                 result.save(pp_dir / f"{src.stem}{ext}", format=pil_fmt)
-            except Exception:  # noqa: BLE001 - 個別失敗はスキップ
+            except preprocess_service.PreprocessValidationError:
+                # ROI範囲外などの明示エラーはsilent skipせず呼び出し元へ伝播する
+                raise
+            except Exception:  # noqa: BLE001 - その他の個別失敗は既存挙動どおりスキップ
                 continue
         source_dir = pp_dir
 
@@ -200,10 +276,11 @@ def start_job(name: str, req: PredictJobCreate) -> PredictJobStartResponse:
     job = {
         "predict_job_id": predict_job_id,
         "predict_job_name": req.predict_job_name,
-        "train_job_id": req.train_job_id,
-        "weight_type": req.weight_type,
+        # train_job_id/weight_type/confは実際に解決された値を記録する（request/selected model/defaultのいずれか）
+        "train_job_id": train_job_id,
+        "weight_type": weight_type,
         "source_type": req.source_type,
-        "conf": req.conf,
+        "conf": conf,
         "iou": req.iou,
         "imgsz": req.imgsz,
         "device": req.device,
@@ -222,6 +299,9 @@ def start_job(name: str, req: PredictJobCreate) -> PredictJobStartResponse:
         "prediction_path": rel_pred,
         "results_json_path": f"{rel_pred}/results.json",
         "preprocess_mode": req.preprocess_mode,
+        "resolution_source": resolution_source,
+        "resolved_preprocess_profile": pre_settings.model_dump() if pre_settings is not None else None,
+        "processing_order": preprocess_service.processing_order(pre_settings) if pre_settings is not None else None,
     }
     _job_json_path(name, predict_job_id).write_text(
         json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -235,7 +315,7 @@ def start_job(name: str, req: PredictJobCreate) -> PredictJobStartResponse:
         "--predict-dir", str(pred_dir),
         "--project-dir", str(proj_dir),
         "--weight", str(weight),
-        "--conf", str(req.conf),
+        "--conf", str(conf),
         "--iou", str(req.iou),
         "--imgsz", str(req.imgsz),
         "--device", req.device,

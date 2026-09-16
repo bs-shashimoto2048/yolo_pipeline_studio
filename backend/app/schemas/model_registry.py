@@ -6,7 +6,9 @@ model_id = "{train_job_id}:{weight_type}"
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 from .experiment import ExperimentEvaluation, ExperimentPrediction, LatestAnalysis
 from .training import TrainJobInfo
@@ -60,6 +62,12 @@ class SelectModelRequest(BaseModel):
     train_job_id: str
     weight_type: str = "best"
     memo: str = ""
+    # 推論時にこのモデルへフォールバックする際の既定confidence（Checkpoint 5AE）。
+    # 未指定ならprediction_service側の安全なdefaultが使われる。
+    conf: float | None = Field(default=None, ge=0.0, le=1.0)
+    # 推論時にこのモデルへフォールバックする際の前処理設定（PreprocessSettings相当のdict、
+    # 固定ROI等を含む）。未指定ならNone（前処理フォールバックなし）。
+    preprocess_profile: dict[str, Any] | None = None
 
 
 class SelectedModelResponse(BaseModel):
@@ -70,3 +78,5 @@ class SelectedModelResponse(BaseModel):
     model_path: str
     selected_at: str | None = None
     memo: str = ""
+    conf: float | None = None
+    preprocess_profile: dict[str, Any] | None = None

@@ -7,6 +7,7 @@ import type {
   ModelListResponse,
   ModelPackageResponse,
   OnnxExportInfo,
+  SelectedModelResponse,
 } from "../types";
 
 const ONNX_DEFAULTS = {
@@ -93,6 +94,10 @@ export default function ModelsPage() {
   const [sort, setSort] = useState<Sort>("map50_desc");
   const [openId, setOpenId] = useState<string | null>(null);
   const [memo, setMemo] = useState("");
+  // 採用モデルの既定confidence（空文字=未設定）。0.0〜1.0のみ許容（Checkpoint 5AG）。
+  const [confInput, setConfInput] = useState("");
+  const [confError, setConfError] = useState("");
+  const [selectedDetail, setSelectedDetail] = useState<SelectedModelResponse | null>(null);
   const [pkg, setPkg] = useState<ModelPackageResponse | null>(null);
   const [pkgBusy, setPkgBusy] = useState(false);
   // ONNX
@@ -168,6 +173,12 @@ export default function ModelsPage() {
     } catch (e) {
       setError(String(e));
     }
+    try {
+      setSelectedDetail(await api.getSelectedModel(name));
+    } catch {
+      // 未設定（404）は正常系。エラー扱いにしない。
+      setSelectedDetail(null);
+    }
   }
 
   useEffect(() => {
@@ -186,10 +197,26 @@ export default function ModelsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onnxExports]);
 
+  // confInput（文字列）を optional な number|null へ変換。空文字は「未設定」を意味しnullを送る。
+  // 0.0〜1.0範囲外はバリデーションエラーとしてnullを返さずundefinedを返す（送信を止める）。
+  function parseConf(): { value: number | null; ok: boolean } {
+    const t = confInput.trim();
+    if (t === "") return { value: null, ok: true };
+    const v = Number(t);
+    if (Number.isNaN(v) || v < 0 || v > 1) return { value: null, ok: false };
+    return { value: v, ok: true };
+  }
+
   async function select(m: ModelItem) {
     setError("");
+    setConfError("");
+    const { value: confValue, ok } = parseConf();
+    if (!ok) {
+      setConfError("confidenceは0.0〜1.0の範囲、または空欄（未設定）で指定してください。");
+      return;
+    }
     try {
-      await api.setSelectedModel(name, m.train_job_id, m.weight_type, memo);
+      await api.setSelectedModel(name, m.train_job_id, m.weight_type, memo, confValue);
       setMemo("");
       await reload();
     } catch (e) {
@@ -243,6 +270,8 @@ export default function ModelsPage() {
               <strong>{selectedModel.model_id}</strong>
               <span className="muted">
                 {selectedModel.dataset_name} / mAP50 {num(selectedModel.map50)}
+                {" / conf既定 "}
+                {selectedDetail?.conf ?? "未設定"}
               </span>
             </span>
             <button
@@ -405,10 +434,26 @@ export default function ModelsPage() {
                   value={memo}
                   onChange={(e) => setMemo(e.target.value)}
                 />
+                <label className="field" style={{ maxWidth: 140 }}>
+                  既定confidence
+                  <input
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    placeholder="未設定"
+                    value={confInput}
+                    onChange={(e) => {
+                      setConfInput(e.target.value);
+                      setConfError("");
+                    }}
+                  />
+                </label>
                 <button onClick={() => select(openModel)} disabled={!openModel.exists}>
                   採用モデルに設定
                 </button>
                 {!openModel.exists && <span className="error">ファイルが存在しないため採用できません</span>}
+                {confError && <span className="error">{confError}</span>}
               </div>
               <div className="row">
                 <button className="secondary" onClick={() => navigate(`/p/${name}/infer?train_job=${openModel.train_job_id}&weight=${openModel.weight_type}`)}>推論画面へ</button>
