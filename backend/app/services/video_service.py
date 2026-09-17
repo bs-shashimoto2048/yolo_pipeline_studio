@@ -24,6 +24,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urljoin, urlsplit
 
 from ..core import paths
+from ..schemas.preprocess import PreprocessSettings
 from ..schemas.video import (
     CameraInfo,
     VideoJobCreate,
@@ -33,6 +34,11 @@ from ..schemas.video import (
 )
 from . import preprocess_service
 from .project_service import ProjectError, project_exists
+
+# 注意: model_registry_service はここでトップレベル import しない。
+# model_registry_service -> experiment_service -> prediction_service -> model_registry_service
+# という既存の循環import経路があり、capture_service -> video_service 経由でapp.main起動時に
+# 巻き込まれると ImportError になる（Issue #19で発見）。start_job() 内でのみ遅延importする。
 
 _WORKER = Path(__file__).resolve().parents[2] / "workers" / "predict_video_worker.py"
 _BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -463,12 +469,27 @@ def start_job(name: str, req: VideoJobCreate) -> VideoJobInfo:
     _require_project(name)
     if not paths.is_valid_project_name(req.video_job_name):
         raise VideoValidationError("video_job_name は英数・アンダースコア・ハイフンのみです。")
-    if req.weight_type not in ("best", "last"):
-        raise VideoValidationError("weight_type は best または last です。")
     _validate_fps_settings(video_fps=req.video_fps, infer_fps=req.infer_fps)
-    _validate_inference_settings(conf=req.conf, iou=req.iou, imgsz=req.imgsz)
     if req.source_type not in ("camera", "url"):
         raise VideoValidationError("source_type は camera または url です。")
+
+    # --- train_job_id/weight_type/conf の解決（明示指定 > selected model > 安全なdefault）。
+    # image predict と同じ優先順位・同じ共有ヘルパを使う（Issue #19）。
+    # 循環import回避のため遅延import（モジュール冒頭のコメント参照）。
+    from . import model_registry_service  # noqa: PLC0415
+
+    try:
+        train_job_id, weight_type, conf, resolution_source, selected = (
+            model_registry_service.resolve_train_weight_conf(
+                name, req.train_job_id, req.weight_type, req.conf
+            )
+        )
+    except model_registry_service.ModelValidationError as e:
+        raise VideoValidationError(str(e)) from e
+
+    if weight_type not in ("best", "last"):
+        raise VideoValidationError("weight_type は best または last です。")
+    _validate_inference_settings(conf=conf, iou=req.iou, imgsz=req.imgsz)
 
     resolved_url: str | None = None
     resolve_note: str | None = None
@@ -477,17 +498,20 @@ def start_job(name: str, req: VideoJobCreate) -> VideoJobInfo:
     elif req.camera_index < 0:
         raise VideoValidationError("camera_index は0以上の整数です。")
 
-    train_dir = paths.train_job_dir(name, req.train_job_id)
+    train_dir = paths.train_job_dir(name, train_job_id)
     if not train_dir.exists():
-        raise VideoNotFoundError(f"学習ジョブ '{req.train_job_id}' が見つかりません。")
-    weight = train_dir / "weights" / f"{req.weight_type}.pt"
+        raise VideoNotFoundError(f"学習ジョブ '{train_job_id}' が見つかりません。")
+    weight = train_dir / "weights" / f"{weight_type}.pt"
     if not weight.exists():
         raise VideoValidationError(
-            f"モデル '{req.weight_type}.pt' が見つかりません。"
+            f"モデル '{weight_type}.pt' が見つかりません。"
         )
 
-    if req.preprocess_mode not in ("none", "latest"):
-        raise VideoValidationError("preprocess_mode は none または latest です。")
+    # --- 推論前処理モードの解決 ---
+    # "selected": 採用モデル（selected_model.json）のpreprocess_profileを使用（Issue #19）。
+    # image predict の preprocess_mode="selected" と同じ意味・同じ変換ロジック。
+    if req.preprocess_mode not in ("none", "latest", "selected"):
+        raise VideoValidationError("preprocess_mode は none / latest / selected のいずれかです。")
     pre_settings = None
     if req.preprocess_mode == "latest":
         pre_settings = preprocess_service.load_latest_settings(name)
@@ -495,6 +519,16 @@ def start_job(name: str, req: VideoJobCreate) -> VideoJobInfo:
             raise VideoValidationError(
                 "最新前処理設定がありません（前処理を実行してから 'latest' を選択してください）。"
             )
+    elif req.preprocess_mode == "selected":
+        profile = selected.preprocess_profile if selected is not None else None
+        if not profile:
+            raise VideoValidationError(
+                "採用モデルに前処理設定（preprocess_profile）が登録されていません。"
+            )
+        try:
+            pre_settings = PreprocessSettings(**profile)
+        except Exception as e:  # noqa: BLE001
+            raise VideoValidationError(f"採用モデルのpreprocess_profileが不正です: {e!r}") from e
 
     vid = req.video_job_name
     vdir = paths.video_job_dir(name, vid)
@@ -522,8 +556,9 @@ def start_job(name: str, req: VideoJobCreate) -> VideoJobInfo:
     now = datetime.now().isoformat(timespec="seconds")
     job = {
         "video_job_id": vid,
-        "train_job_id": req.train_job_id,
-        "weight_type": req.weight_type,
+        # train_job_id/weight_type/confは実際に解決された値を記録する（request/selected model/defaultのいずれか）
+        "train_job_id": train_job_id,
+        "weight_type": weight_type,
         "source_type": req.source_type,
         "camera_index": req.camera_index if req.source_type == "camera" else None,
         "source_url": req.source_url if req.source_type == "url" else None,
@@ -531,7 +566,7 @@ def start_job(name: str, req: VideoJobCreate) -> VideoJobInfo:
         "video_fps": req.video_fps,
         "infer_fps": req.infer_fps,
         "preprocess_mode": req.preprocess_mode,
-        "conf": req.conf,
+        "conf": conf,
         "iou": req.iou,
         "imgsz": req.imgsz,
         "device": req.device,
@@ -540,6 +575,9 @@ def start_job(name: str, req: VideoJobCreate) -> VideoJobInfo:
         "created_at": now,
         "started_at": None,
         "finished_at": None,
+        "resolution_source": resolution_source,
+        "resolved_preprocess_profile": pre_settings.model_dump() if pre_settings is not None else None,
+        "processing_order": preprocess_service.processing_order(pre_settings) if pre_settings is not None else None,
     }
     _job_json_path(name, vid).write_text(
         json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -558,7 +596,7 @@ def start_job(name: str, req: VideoJobCreate) -> VideoJobInfo:
         "--source", source_arg,
         "--video-fps", str(req.video_fps),
         "--infer-fps", str(req.infer_fps),
-        "--conf", str(req.conf),
+        "--conf", str(conf),
         "--iou", str(req.iou),
         "--imgsz", str(req.imgsz),
         "--device", req.device,

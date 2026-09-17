@@ -222,3 +222,63 @@ def get_selected(name: str) -> SelectedModelResponse:
         conf=sel.get("conf"),
         preprocess_profile=sel.get("preprocess_profile"),
     )
+
+
+SAFE_DEFAULT_WEIGHT_TYPE = "best"
+SAFE_DEFAULT_CONF = 0.25
+
+
+def resolve_train_weight_conf(
+    name: str,
+    train_job_id: str | None,
+    weight_type: str | None,
+    conf: float | None,
+) -> tuple[str, str, float, dict[str, str], SelectedModelResponse | None]:
+    """train_job_id/weight_type/confを 明示指定 > selected model > 安全なdefault の優先順位で解決する。
+
+    prediction_service（image predict）とvideo_service（映像推論）で共通利用する
+    （Issue #19: 両経路の解決優先順位を統一するための共有ヘルパ）。
+    呼び出し側は本関数が送出する ModelValidationError を、自ドメインのバリデーション
+    エラー型へ変換してから再送出すること（router層はModelErrorを捕捉しないため）。
+    """
+    try:
+        selected = get_selected(name)
+    except ModelError:
+        selected = None
+
+    source: dict[str, str] = {}
+
+    if train_job_id is not None:
+        resolved_train_job_id = train_job_id
+        source["train_job_id"] = "request"
+    elif selected is not None:
+        resolved_train_job_id = selected.train_job_id
+        source["train_job_id"] = "selected_model"
+    else:
+        # train_job_idは旧来必須だったため、代わりに選べる安全なdefaultは存在しない。
+        # 旧挙動（未指定はエラー）と互換にする。
+        raise ModelValidationError(
+            "train_job_id が指定されておらず、採用モデル（selected model）も設定されていません。"
+        )
+
+    if weight_type is not None:
+        resolved_weight_type = weight_type
+        source["weight_type"] = "request"
+    elif selected is not None and selected.weight_type:
+        resolved_weight_type = selected.weight_type
+        source["weight_type"] = "selected_model"
+    else:
+        resolved_weight_type = SAFE_DEFAULT_WEIGHT_TYPE
+        source["weight_type"] = "default"
+
+    if conf is not None:
+        resolved_conf = conf
+        source["conf"] = "request"
+    elif selected is not None and selected.conf is not None:
+        resolved_conf = selected.conf
+        source["conf"] = "selected_model"
+    else:
+        resolved_conf = SAFE_DEFAULT_CONF
+        source["conf"] = "default"
+
+    return resolved_train_job_id, resolved_weight_type, resolved_conf, source, selected

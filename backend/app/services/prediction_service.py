@@ -120,10 +120,6 @@ def _read_job(name: str, predict_job_id: str) -> dict | None:
         return None
 
 
-_SAFE_DEFAULT_WEIGHT_TYPE = "best"
-_SAFE_DEFAULT_CONF = 0.25
-
-
 def _get_selected_model_or_none(name: str) -> SelectedModelResponse | None:
     """採用モデル設定を返す。未設定/読み込み不可の場合はNone（呼び出し元でsafe defaultへ）。"""
     try:
@@ -135,44 +131,17 @@ def _get_selected_model_or_none(name: str) -> SelectedModelResponse | None:
 def _resolve_train_weight_conf(
     name: str, req: PredictJobCreate
 ) -> tuple[str, str, float, dict[str, str], SelectedModelResponse | None]:
-    """train_job_id/weight_type/confを 明示指定 > selected model > 安全なdefault の優先順位で解決する。"""
-    selected = _get_selected_model_or_none(name)
-    source: dict[str, str] = {}
+    """train_job_id/weight_type/confを 明示指定 > selected model > 安全なdefault の優先順位で解決する。
 
-    if req.train_job_id is not None:
-        train_job_id = req.train_job_id
-        source["train_job_id"] = "request"
-    elif selected is not None:
-        train_job_id = selected.train_job_id
-        source["train_job_id"] = "selected_model"
-    else:
-        # train_job_idは旧来必須だったため、代わりに選べる安全なdefaultは存在しない。
-        # 旧挙動（未指定はエラー）と互換にする。
-        raise PredictValidationError(
-            "train_job_id が指定されておらず、採用モデル（selected model）も設定されていません。"
+    解決ロジック本体は model_registry_service.resolve_train_weight_conf に共通化されている
+    （Issue #19: image predict / 映像推論の両経路で優先順位を統一するため）。
+    """
+    try:
+        return model_registry_service.resolve_train_weight_conf(
+            name, req.train_job_id, req.weight_type, req.conf
         )
-
-    if req.weight_type is not None:
-        weight_type = req.weight_type
-        source["weight_type"] = "request"
-    elif selected is not None and selected.weight_type:
-        weight_type = selected.weight_type
-        source["weight_type"] = "selected_model"
-    else:
-        weight_type = _SAFE_DEFAULT_WEIGHT_TYPE
-        source["weight_type"] = "default"
-
-    if req.conf is not None:
-        conf = req.conf
-        source["conf"] = "request"
-    elif selected is not None and selected.conf is not None:
-        conf = selected.conf
-        source["conf"] = "selected_model"
-    else:
-        conf = _SAFE_DEFAULT_CONF
-        source["conf"] = "default"
-
-    return train_job_id, weight_type, conf, source, selected
+    except model_registry_service.ModelValidationError as e:
+        raise PredictValidationError(str(e)) from e
 
 
 def start_job(name: str, req: PredictJobCreate) -> PredictJobStartResponse:

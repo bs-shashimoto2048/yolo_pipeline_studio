@@ -102,6 +102,9 @@ export default function PredictPage() {
   const [videoJob, setVideoJob] = useState<VideoJobInfo | null>(null);
   const [videoBusy, setVideoBusy] = useState(false);
   const [videoError, setVideoError] = useState("");
+  // ON: train_job_id/weight_type/confをrequestから省略し、project既定（selected model）へ
+  // フォールバックさせる（image predictのuseSelectedDefaultと同じ意味、Issue #19）。
+  const [useSelectedDefaultVideo, setUseSelectedDefaultVideo] = useState(false);
   const [streamSrc, setStreamSrc] = useState("");
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [settingsApplied, setSettingsApplied] = useState(false);
@@ -308,14 +311,15 @@ export default function PredictPage() {
     try {
       const res = await api.startVideoJob(name, {
         video_job_name: videoName.trim(),
-        train_job_id: trainJobId,
-        weight_type: weightType,
+        // ONの場合はキー自体を送らない（undefined）。backend側のproject既定
+        // （selected model）フォールバックが働く（Issue #19）。
+        ...(useSelectedDefaultVideo ? {} : { train_job_id: trainJobId, weight_type: weightType }),
         source_type: sourceType,
         camera_index: cameraIndex,
         source_url: sourceType === "url" ? sourceUrl.trim() : undefined,
         video_fps: videoFps,
         infer_fps: inferFps,
-        conf,
+        ...(useSelectedDefaultVideo ? {} : { conf }),
         iou,
         imgsz,
         device,
@@ -822,9 +826,23 @@ export default function PredictPage() {
                   video_job_name
                   <input value={videoName} onChange={(e) => setVideoName(e.target.value)} disabled={!!videoActive} required />
                 </label>
+                <label className="pp-inline-check field-wide" style={{ marginBottom: 6 }}>
+                  <input
+                    type="checkbox"
+                    checked={useSelectedDefaultVideo}
+                    onChange={(e) => setUseSelectedDefaultVideo(e.target.checked)}
+                    disabled={!!videoActive}
+                  />
+                  selected model既定を使う（学習ジョブ/weight/confをprojectの採用モデル設定へ委ねる）
+                </label>
                 <label className="field field-wide">
                   学習ジョブ
-                  <select value={trainJobId} onChange={(e) => setTrainJobId(e.target.value)} disabled={!!videoActive} required>
+                  <select
+                    value={trainJobId}
+                    onChange={(e) => setTrainJobId(e.target.value)}
+                    disabled={!!videoActive || useSelectedDefaultVideo}
+                    required={!useSelectedDefaultVideo}
+                  >
                     <option value="" disabled>
                       選択してください
                     </option>
@@ -837,7 +855,11 @@ export default function PredictPage() {
                 </label>
                 <label className="field">
                   weight
-                  <select value={weightType} onChange={(e) => setWeightType(e.target.value)} disabled={!!videoActive}>
+                  <select
+                    value={weightType}
+                    onChange={(e) => setWeightType(e.target.value)}
+                    disabled={!!videoActive || useSelectedDefaultVideo}
+                  >
                     <option value="best">best</option>
                     <option value="last">last</option>
                   </select>
@@ -878,7 +900,13 @@ export default function PredictPage() {
                 </label>
                 <label className="field">
                   conf
-                  <input type="number" step="0.05" value={conf} onChange={(e) => setConf(Number(e.target.value))} />
+                  <input
+                    type="number"
+                    step="0.05"
+                    value={conf}
+                    onChange={(e) => setConf(Number(e.target.value))}
+                    disabled={useSelectedDefaultVideo}
+                  />
                 </label>
                 <label className="field">
                   iou
@@ -924,9 +952,16 @@ export default function PredictPage() {
                     <option value="latest" disabled={!preInfo?.has_processed_images}>
                       最新前処理設定を適用{preInfo?.has_processed_images ? "" : "（前処理未実行）"}
                     </option>
+                    <option value="selected">採用モデルの前処理設定を適用（selected）</option>
                   </select>
                 </label>
               </div>
+              {preprocessMode === "selected" && (
+                <p className="muted" style={{ fontSize: "0.76rem", margin: "4px 0" }}>
+                  採用モデル（Models画面）に登録されたROI/前処理設定（例: src004ならROI crop→resize→grayscale→sharpen）を、
+                  カメラのraw frameへ推論直前に適用します。ジョブ開始後、右の状態表示で実際に解決された設定を確認できます。
+                </p>
+              )}
               {preprocessMode === "latest" && preInfo?.has_processed_images && (
                 <p className="muted" style={{ fontSize: "0.76rem", margin: "4px 0" }}>
                   使用設定: {preInfoSummary(preInfo.metadata)}
@@ -981,6 +1016,21 @@ export default function PredictPage() {
                   ? `URL ${videoJob.resolved_source_url ?? videoJob.source_url ?? "-"}`
                   : `camera #${videoJob.camera_index}`}{" "}
                 / 映像FPS {videoJob.video_fps} / 推論FPS {videoJob.infer_fps} / 前処理 {videoJob.preprocess_mode}
+              </p>
+            )}
+            {videoJob && (videoJob.resolution_source || videoJob.processing_order) && (
+              <p className="muted video-live-meta">
+                解決済み: model={videoJob.train_job_id}:{videoJob.weight_type} conf={videoJob.conf}
+                {videoJob.resolution_source && (
+                  <>
+                    {" "}
+                    （train_job_id={videoJob.resolution_source.train_job_id}, weight_type=
+                    {videoJob.resolution_source.weight_type}, conf={videoJob.resolution_source.conf}）
+                  </>
+                )}
+                {videoJob.processing_order && videoJob.processing_order.length > 0 && (
+                  <> / 前処理順: {videoJob.processing_order.join(" → ")}</>
+                )}
               </p>
             )}
             <div className="video-live-frame">

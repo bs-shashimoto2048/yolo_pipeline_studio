@@ -122,6 +122,23 @@ def _atomic_write_jpg_bytes(path: Path, data: bytes) -> None:
         pass
 
 
+def apply_frame_preprocess(cv2, np, frame, pre_settings, preprocess_service_module):
+    """1フレーム（BGR ndarray）へ前処理を適用し、結果のBGR ndarrayを返す。
+
+    pre_settingsがNoneならframeをそのまま返す。失敗時は例外をそのまま送出する
+    （呼び出し側でPreprocessValidationError/その他を区別してハンドリングするため、
+    ここではsilent fallbackしない。Issue #19）。単体テスト用に main() のループから
+    切り出した純粋関数。
+    """
+    if pre_settings is None:
+        return frame
+    okj, buf = cv2.imencode(".jpg", frame)
+    if not okj:
+        raise RuntimeError("フレームのJPEGエンコードに失敗しました")
+    pil = preprocess_service_module.apply(buf.tobytes(), pre_settings)
+    return cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
+
+
 def _open_camera(cv2, source_type: str, source: str):
     """映像ソースを開く。
 
@@ -285,18 +302,24 @@ def main() -> int:
                     message=f"OpenCV/numpy が読み込めません: {e!r}")
         return 1
 
-    # 前処理設定（任意）
+    # 前処理設定（任意）。
+    # Issue #19: 読込に失敗した場合、以前は「前処理なしで継続」していたが、これは
+    # selected/latest経由で意図されたROI等が無言で適用されないまま推論が続く事故に
+    # つながるため、明示的にjobを失敗させる（silent fallback禁止）。
     pre_settings = None
+    _pp = None
     if args.preprocess_json:
+        sys.path.insert(0, args.backend_dir)
+        from app.schemas.preprocess import PreprocessSettings  # noqa: PLC0415
+        from app.services import preprocess_service  # noqa: PLC0415
+        _pp = preprocess_service
         try:
-            sys.path.insert(0, args.backend_dir)
-            from app.schemas.preprocess import PreprocessSettings  # noqa: PLC0415
-            from app.services import preprocess_service  # noqa: PLC0415
             pre_settings = PreprocessSettings(**json.loads(Path(args.preprocess_json).read_text(encoding="utf-8-sig")))
-            _pp = preprocess_service
         except Exception as e:  # noqa: BLE001
-            print(f"[WARN] 前処理設定の読込に失敗（前処理なしで継続）: {e!r}")
-            pre_settings = None
+            _update_job(job_json, status="failed", finished_at=_now(),
+                        message=f"前処理設定(preprocess.json)の読込に失敗しました: {e!r}")
+            print(f"[ERROR] 前処理設定の読込に失敗: {e!r}")
+            return 1
 
     try:
         from ultralytics import YOLO  # noqa: PLC0415
@@ -345,6 +368,11 @@ def main() -> int:
         # 約3秒読めなければカメラを開き直す（一時的な切断・ドライバ不調からの自動復帰）
         max_read_fail = max(10, args.video_fps * 3)
         reconnects = 0
+        # 前処理失敗（Issue #19）: ROI範囲外等の構造的エラーは即座にjob失敗させる。
+        # それ以外の予期しない単発エラーは、無前処理のフレームを推論へ回さず当該フレームを
+        # スキップして継続するが、一定回数連続したら構造的な問題とみなしjobを失敗させる。
+        preprocess_fail = 0
+        max_preprocess_fail = max(10, args.video_fps * 3)
         next_tick = time.time()
         last_settings_check = time.time()
         settings_check_interval = 1.0  # FPS・推論設定の即時反映チェック間隔（秒）
@@ -389,15 +417,37 @@ def main() -> int:
                 continue
             read_fail = 0
 
-            # 前処理（フレームへ適用）
+            # 前処理（フレームへ適用）。
+            # Issue #19: 前処理に失敗した場合、以前は無言でスキップし無前処理のframeを
+            # そのまま推論へ回していたが、これはselected/latestで意図したROI等が
+            # 適用されないまま検出が続く事故（confidence崩壊の誤診断）につながるため、
+            # 無前処理のframeを推論・表示更新へは一切回さない。
+            preprocess_ok = True
             if pre_settings is not None:
                 try:
-                    okj, buf = cv2.imencode(".jpg", frame)
-                    if okj:
-                        pil = _pp.apply(buf.tobytes(), pre_settings)
-                        frame = cv2.cvtColor(np.array(pil), cv2.COLOR_RGB2BGR)
-                except Exception:  # noqa: BLE001
-                    pass
+                    frame = apply_frame_preprocess(cv2, np, frame, pre_settings, _pp)
+                    preprocess_fail = 0
+                except _pp.PreprocessValidationError as e:
+                    # ROI範囲外など構造的エラーは毎フレーム再現するため、即座にjobを失敗させる
+                    _update_job(job_json, status="failed", finished_at=_now(),
+                                message=f"前処理に失敗しました（ROI/前処理設定を確認してください）: {e!r}")
+                    print(f"[ERROR] 前処理が構造的エラーのため停止: {e!r}")
+                    return 1
+                except Exception as e:  # noqa: BLE001
+                    preprocess_fail += 1
+                    preprocess_ok = False
+                    print(f"[WARN] 前処理に失敗（このフレームをスキップ、{preprocess_fail}回連続）: {e!r}")
+                    if preprocess_fail >= max_preprocess_fail:
+                        _update_job(job_json, status="failed", finished_at=_now(),
+                                    message=f"前処理が{preprocess_fail}回連続で失敗したため停止しました: {e!r}")
+                        print(f"[ERROR] 前処理が{preprocess_fail}回連続で失敗。停止します。")
+                        return 1
+
+            if not preprocess_ok:
+                # 無前処理のframeを推論・表示更新に使わず、このフレームは丸ごとスキップする
+                time.sleep(video_interval)
+                frame_no += 1
+                continue
 
             if frame_no % infer_every == 0:
                 try:

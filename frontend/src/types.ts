@@ -651,18 +651,20 @@ export interface CameraListResponse {
 
 export interface VideoJobCreateRequest {
   video_job_name: string;
-  train_job_id: string;
-  weight_type: string;
+  // train_job_id/weight_type/confは省略可（Issue #19）。省略時はselected model既定へ
+  // フォールバックする（image predictと同じ優先順位: request明示 > selected model > default）。
+  train_job_id?: string;
+  weight_type?: string;
   source_type: "camera" | "url";
   camera_index: number;
   source_url?: string | null;
   video_fps: number;
   infer_fps: number;
-  conf: number;
+  conf?: number;
   iou: number;
   imgsz: number;
   device: string;
-  preprocess_mode: string;
+  preprocess_mode: string; // none | latest | selected
   overwrite: boolean;
 }
 
@@ -698,7 +700,14 @@ export interface VideoJobInfo {
   resolved_source_url: string | null;
   video_fps: number | null;
   infer_fps: number | null;
+  conf: number | null;
   preprocess_mode: string | null;
+  // 実際に解決されたtrain_job_id/weight_type/confの由来（"request"|"selected_model"|"default"）
+  resolution_source?: Record<string, string> | null;
+  // preprocess_mode="latest"/"selected"の場合に実際に適用されたPreprocessSettings
+  resolved_preprocess_profile?: Record<string, unknown> | null;
+  // 実際に適用された前処理ステップの列（例: ["roi_crop","resize","grayscale","sharpen"]）
+  processing_order?: string[] | null;
   status: string;
   message: string | null;
   created_at: string | null;
