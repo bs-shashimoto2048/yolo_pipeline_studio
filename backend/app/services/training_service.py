@@ -236,6 +236,63 @@ def _read_job(name: str, job_id: str) -> dict | None:
         return None
 
 
+def _iso_mtime(p: Path) -> str | None:
+    try:
+        return datetime.fromtimestamp(p.stat().st_mtime).isoformat(timespec="seconds")
+    except OSError:
+        return None
+
+
+def _synthesize_external_job(name: str, run_dir: Path) -> dict | None:
+    """job.json が存在しないrun（Ultralytics直接実行等、アプリの学習APIを経由しない
+    外部/直接生成run）向けに、weights(best.pt/last.pt)が存在する場合のみ最小限の
+    TrainJobInfo相当を合成する（Issue #14 Checkpoint 2）。
+
+    job.json が存在するrun（内容が壊れている場合を含む）には一切適用しない
+    （呼び出し側で job.json の存在有無を判定してから呼ぶこと）。
+    weightsが1つも無いrunはNoneを返し、一覧には含めない（空runの誤表示防止）。
+    """
+    weights_dir = run_dir / "weights"
+    best = weights_dir / "best.pt"
+    last = weights_dir / "last.pt"
+    has_best = best.exists()
+    has_last = last.exists()
+    if not (has_best or has_last):
+        return None
+
+    proj_dir = paths.project_dir(name)
+
+    def _rel(p: Path) -> str:
+        return p.relative_to(proj_dir).as_posix()
+
+    results_csv = run_dir / "results.csv"
+    created = _iso_mtime(run_dir) or _iso_mtime(best if has_best else last)
+    finished_candidates = [
+        t for t in (_iso_mtime(best) if has_best else None, _iso_mtime(last) if has_last else None) if t
+    ]
+    finished = max(finished_candidates) if finished_candidates else created
+
+    return {
+        "job_id": run_dir.name,
+        "job_name": run_dir.name,
+        # weightsが存在する時点で学習自体は完了しているとみなす（既存enum制約はなく
+        # 単なる文字列フィールドのため、既存statusの一つ"completed"をそのまま使う）。
+        "status": "completed",
+        "created_at": created,
+        "started_at": None,
+        "finished_at": finished,
+        "return_code": 0,
+        "run_path": _rel(run_dir),
+        "best_model_path": _rel(best) if has_best else None,
+        "last_model_path": _rel(last) if has_last else None,
+        "results_csv_path": _rel(results_csv) if results_csv.exists() else None,
+        "message": (
+            "外部/直接実行run（job.json無し）として検出されたエントリです。"
+            "学習条件（dataset/epochs等）の詳細情報は保持されていません。"
+        ),
+    }
+
+
 def start_job(name: str, req: TrainJobCreate) -> TrainJobStartResponse:
     _require_project(name)
 
@@ -393,6 +450,11 @@ def list_jobs(name: str) -> TrainJobListResponse:
             if not child.is_dir():
                 continue
             job = _read_job(name, child.name)
+            if job is None and not _job_json_path(name, child.name).exists():
+                # job.json自体が存在しない外部/直接実行runのみ合成対象とする。
+                # job.jsonはあるが読めない(壊れている)場合はNoneのまま=従来どおり除外する
+                # (既存の「壊れたjob.jsonは一覧から除外」という挙動を変えない)。
+                job = _synthesize_external_job(name, child)
             if job is not None:
                 jobs.append(TrainJobInfo(project_name=name, **job))
     return TrainJobListResponse(project_name=name, jobs=jobs)
