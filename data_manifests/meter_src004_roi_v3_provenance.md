@@ -115,7 +115,77 @@ production confidenceを`0.25`から`0.80`へ昇格した。
 - src002: liveで7桁検出確認済み・accepted（本Issueで変更なし、conf=0.60のまま）
 - src003: live source未設定のため、live acceptanceは別Issueへ分離
 
-## Safety Gate（Checkpoint 2〜7、および#16 Final Checkpointを通じ遵守）
+### Runtime state persistence / restore record（Issue #16 Checkpoint 5/6）
+
+**Decision（Plan A採用）**: `projects/**`（画像・labels・runs・weights・`selected_model.json`を含む）は
+案件ローカルruntime stateとして意図的にGit管理外とする既存設計を維持する。したがって:
+
+- 実行時source of truth = `projects/meter_src004/models/selected_model.json`（Git管理外）
+- tracked provenance = 本Markdown文書（決定record・監査証跡。実行時には参照されない）
+- repository cloneのみでmodel artifact/runtime stateを完全再現することは、本repoの現行スコープ外
+  （`selected_model.json`を例外的にtrack化する変更は行わない。理由: 参照先のmodel weight/run自体が
+  同じく`projects/`配下でGit管理外のため、JSON単体をtrackしても実体が伴わず整合しない）
+
+**Restore values（2026-09-24時点のproduction設定、`meter_src004`）**:
+
+| 項目 | 値 |
+|---|---|
+| project | `meter_src004` |
+| train_job_id | `candidate_roi_v3_5` |
+| weight_type | `best` |
+| conf | `0.80` |
+| roi_enabled | `true` |
+| ROI (raw pixel, 1920x1080基準) | x=[835, 1354), y=[374, 480) |
+| resize_mode / resize_size | `width` / `640` |
+| grayscale_enabled | `true` |
+| sharpen_enabled / sharpen_strength | `true` / `1.0` |
+| processing order | `roi_crop -> resize -> grayscale -> sharpen` |
+
+**復元手順（既存API、`backend/app/routers/model_registry.py`で確認済み）**:
+
+対応するmodel artifact/run（`candidate_roi_v3_5`の`best`重み、`projects/meter_src004/runs/train/candidate_roi_v3_5/`配下）を
+別途復元または再学習した上で、以下の既存APIを呼び出すことで`selected_model.json`を再現できる。
+
+```
+PUT /api/projects/meter_src004/models/selected
+Content-Type: application/json
+
+{
+  "train_job_id": "candidate_roi_v3_5",
+  "weight_type": "best",
+  "conf": 0.80,
+  "preprocess_profile": {
+    "roi_enabled": true,
+    "roi_x0": 835,
+    "roi_y0": 374,
+    "roi_x1": 1354,
+    "roi_y1": 480,
+    "resize_enabled": true,
+    "resize_mode": "width",
+    "resize_size": 640,
+    "grayscale_enabled": true,
+    "sharpen_enabled": true,
+    "sharpen_strength": 1.0
+  }
+}
+```
+
+（リクエストbodyは`backend/app/schemas/model_registry.py`の`SelectModelRequest`と一致。
+`model_registry_service.set_selected()`が内部で呼ばれ、`selected_model.json`を書き換える。）
+
+**注意**:
+- `selected_model.json`自体はGit管理外のlocal runtime stateであり、本文書はその値の記録に過ぎない。
+- model weight（`best.pt`等）・training run成果物も`projects/`配下でGit管理外であり、上記APIを呼ぶだけでは
+  参照先のmodel artifactが存在しない環境では`model_path`解決に失敗する。別環境での復元には、
+  対応するmodel artifact/runを別途復元または再学習した上で、この設定を再適用する必要がある。
+
+### 用語の区別（terminology correction）
+
+以後、本文書および関連報告では以下の用語を区別する:
+- **dataset split manifest** = CSV（例: `meter_src004_split_v3.csv`、`meter_src004_hard_val_v1.csv`）
+- **provenance document** = Markdown（本文書自体）
+
+## Safety Gate（Checkpoint 2〜7、および#16 Final Checkpoint/Checkpoint 5・6を通じ遵守）
 
 - digital src002/src003のmodel/configは無変更
 - 既存v2 manifestは無変更
