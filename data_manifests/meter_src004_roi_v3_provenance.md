@@ -98,11 +98,28 @@ conf=0.50はVal58参考値として記録するのみ（Exact 56/58だがmissing
 - **Digital** (`meter_src002`, `meter_src003`): `production_combined_v2_5z`（本Issue全体を通じ変更なし）
 - **Drum** (`meter_src004`): `candidate_roi_v3_5`（本Checkpointで採用）
 
-## Safety Gate（Checkpoint 2〜7を通じ遵守）
+## 12. Production confidence 0.25 → 0.80 promotion（Issue #16 Final Checkpoint）
+
+Issue #19実装後のselected video inference経路（`preprocess_mode=selected`）で実施した実カメラ受入確認の結果、
+production confidenceを`0.25`から`0.80`へ昇格した。
+
+- 変更点は`projects/meter_src004/models/selected_model.json`の`conf`フィールドのみ
+  （`train_job_id`/`weight_type`/`model_path`/`preprocess_profile`は無変更）
+- 昇格の根拠（Issue #16 Final Checkpointコメントより）:
+  - conf=0.80でも主要6桁+赤サブ桁の7/7 detectionを維持
+  - 右端サブ桁の変化（例: 0→3）も検出できることを確認
+  - class `2` / `8` の混同再発なし
+- **注意**: §7〜9に記載のStandard Val58 / Frozen Hard-Val27の定量評価は、いずれも**conf=0.25時点**の記録であり、
+  conf=0.80時点で同等のVal/Hard-Val再評価は実施していない（本Checkpointは実カメラでのライブ受入確認のみを根拠とする）。
+  Hard-Val27はconf=0.80への合わせ込みにも一切使用していない。
+- src002: liveで7桁検出確認済み・accepted（本Issueで変更なし、conf=0.60のまま）
+- src003: live source未設定のため、live acceptanceは別Issueへ分離
+
+## Safety Gate（Checkpoint 2〜7、および#16 Final Checkpointを通じ遵守）
 
 - digital src002/src003のmodel/configは無変更
 - 既存v2 manifestは無変更
 - 既存605 labelは無変更
-- Hard-Val27はtraining/conf tuningに一切使用していない（学習完了後の一回評価のみ）
+- Hard-Val27はtraining/conf tuningに一切使用していない（学習完了後の一回評価のみ、confの再合わせ込みにも不使用）
 - Test41はpredict/evaluateしていない（manifest上のstem集合比較のみ）
-- Git stage/commit/pushは実行していない（本ファイル含め3件のuntracked manifestファイルはローカルのまま）
+- model artifact・ROI・preprocessは無変更（Issue #16 Final Checkpointでもconf以外は変更していない）
