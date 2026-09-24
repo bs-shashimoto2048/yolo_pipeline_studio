@@ -328,5 +328,5 @@ ROI（対象領域のみをcrop→resize width640）を導入した結果、同�
 
 ---
 
-*本文書は`docs/METER_DATASET_CURATION_GUIDE.md`として新規作成された初稿である（Issue #22 Checkpoint 2で作成、
-Checkpoint 3で内容監査・締めを実施）。レビュー前のdraftであり、stage/commit/pushは行っていない。*
+*本文書は`docs/METER_DATASET_CURATION_GUIDE.md`として作成された（Issue #22 Checkpoint 2で作成、Checkpoint 3で
+内容監査・締めを実施、Checkpoint 4でcommit・push・レビュー完了）。*
