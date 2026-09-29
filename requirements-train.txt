@@ -12,7 +12,8 @@
 #   （環境に応じて cu126 等へ。詳細は README「Windows + NVIDIA GPU（CUDA）で導入する場合」）
 # 何も指定しなければ CPU 版が入る。
 
-ultralytics
+ultralytics==8.4.83  # production-inference-contract-v1 (docs/PRODUCTION_INFERENCE_CONTRACT.md) の検証済み依存として固定。
+                     # 更新手順は docs/ULTRALYTICS_UPGRADE_PROCEDURE.md を参照。
 torch
 torchvision
 torchaudio

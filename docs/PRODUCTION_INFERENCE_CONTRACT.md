@@ -175,3 +175,5 @@ golden値のみを保存し、画像バイト列・生産設備の機密情報�
 - [`data_manifests/production_model_provenance_v1.md`](../data_manifests/production_model_provenance_v1.md) — モデル採用履歴・#24〜#26の判断根拠
 - [`data_manifests/meter_src004_roi_v3_provenance.md`](../data_manifests/meter_src004_roi_v3_provenance.md) — drum固有の採用履歴
 - [`docs/YOLO26_PT_ONNX_AUDIT.md`](YOLO26_PT_ONNX_AUDIT.md) — rect条件発見の経緯（Issue #24事後監査）
+- [`docs/ULTRALYTICS_UPGRADE_PROCEDURE.md`](ULTRALYTICS_UPGRADE_PROCEDURE.md) — Ultralytics依存更新時の
+  pre-upgrade snapshot・gate（A〜E）・failure classification・採否/rollback基準（Issue #28）

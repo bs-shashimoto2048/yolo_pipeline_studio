@@ -142,10 +142,16 @@ Issue #25でrect=Trueを固定した後、残りのUltralytics暗黙default依�
 > `backend/tests/smoke_inference_contract.py`（回帰検知test）で継続的に維持・検証する。
 > 本節は判断根拠・時系列の記録として残す。
 
+> **Issue #28追記**: Ultralytics依存（および密結合するtorch/torchvision/torchaudio等）の
+> 更新手順は[`docs/ULTRALYTICS_UPGRADE_PROCEDURE.md`](../docs/ULTRALYTICS_UPGRADE_PROCEDURE.md)
+> に標準化した。`ultralytics`は本Issueで`requirements-train.txt`/`backend/requirements-sam.txt`上
+> `==8.4.83`へexact pinした（判断根拠は同docの「実施したrequirements変更」節）。
+
 ### 時系列
 - Issue #24: YOLO26 auditで、model依存defaults（`end2end`等）の重要性が判明。
 - Issue #25: `rect=True`を現行production contractとして明示固定。
 - Issue #26（本節）: 残りのdefaultsを監査し、同値確認できたもののみ追加固定。
+- Issue #28: Ultralytics依存の更新procedureを標準化し、`ultralytics==8.4.83`をexact pin。
 
 ### Pinned（`backend/workers/predict_worker.py` / `predict_video_worker.py` へ明示、
 image predict・video inferenceとも同一、非Test画像digital20枚・drum20枚で個別・組合せとも
