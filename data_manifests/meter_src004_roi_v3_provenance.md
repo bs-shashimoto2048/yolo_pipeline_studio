@@ -193,3 +193,42 @@ Content-Type: application/json
 - Hard-Val27はtraining/conf tuningに一切使用していない（学習完了後の一回評価のみ、confの再合わせ込みにも不使用）
 - Test41はpredict/evaluateしていない（manifest上のstem集合比較のみ）
 - model artifact・ROI・preprocessは無変更（Issue #16 Final Checkpointでもconf以外は変更していない）
+
+## 13. Production runtime letterbox condition（Issue #25、2026-09-29追記）
+
+現在のproduction構成:
+- model: `candidate_roi_v3_5:best`
+- conf: `0.80`
+- project preprocessing: raw 1920×1080 → ROI x=[835,1354), y=[374,480) → crop519×106 →
+  resize width640 → grayscale → sharpen(strength=1.0) → **640×131**
+- YOLO runtime letterbox: **`rect=True`**（`backend/workers/predict_worker.py` /
+  `backend/workers/predict_video_worker.py` の `model.predict()` へIssue #25で明示。
+  image predict / videoとも同一条件）
+- YOLO input tensor: **160×640**（stride=32単位の最小矩形padding。project preprocessing出力
+  640×131とは別概念。正方形640×640ではない）
+
+`rect=True`明示化は、Ultralytics 8.4.83の`Model.predict()`がpredictモードの既定値として
+既にrect=Trueをハードコードしていた（Issue #25 Checkpoint 1で確認）ことを踏まえ、この
+**既存条件をコード上に固定しただけ**であり、production挙動を変更するものではない。
+
+### Issue #25 Checkpoint 2 Train診断（参考値、production精度・Val精度ではない）
+
+Test/Hard-Valは使用せず、`meter_src004`のTrain所属画像40枚（v3 Train339からstem一覧を
+結果を見る前にfreeze）を用いて、rect=True（現行runtime相当）とrect=Falseの差を診断した。
+
+- N=40
+- rect=True と rect=False の reading一致: **35/40 (87.5%)**
+- GT reading exact（診断値、Train画像のため参考値）: rect=True **28/40**、rect=False **27/40**
+- reading差分: **5件**、全件目視確認済み
+- 差分の主因: 末尾桁（最も変化が速い桁）付近のconfidenceが運用conf閾値0.80の直近にあり、
+  letterbox形状差による僅かなconfidence変動でthreshold crossingが発生
+- 5件中、rect=TrueがGTに近い3件（うち1件は完全一致）、rect=Falseが近い2件で、**一貫した優劣は
+  見られなかった**
+
+以上の結果、既存のrect=True（＝現行runtime条件）を維持することとし、`selected_model.json`・
+conf・ROI・preprocess・model weightはいずれも変更していない。
+
+Standard Val58（§7）/ Frozen Hard-Val27（§8）の既存結果は、Issue #25でも**再評価していない**
+（rect=True/Falseいずれの条件でも再実行していない）。これらhistorical custom evaluationが
+当時どのrect条件で計算されたかは、評価scriptが現存しないため確認不能（Issue #25 Checkpoint 1
+参照）。Test/Hard-ValはIssue #25でも一切使用していない。

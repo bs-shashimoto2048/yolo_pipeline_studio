@@ -357,7 +357,10 @@ def main() -> int:
 
     try:
         model = YOLO(args.weight)
-        predict_kwargs = dict(conf=args.conf, iou=args.iou, imgsz=args.imgsz, verbose=False)
+        predict_kwargs = dict(
+            conf=args.conf, iou=args.iou, imgsz=args.imgsz, verbose=False,
+            rect=True,  # production inference condition; do not depend on Ultralytics default
+        )
         if args.device and args.device != "auto":
             predict_kwargs["device"] = args.device
 
@@ -389,7 +392,10 @@ def main() -> int:
                     max_read_fail = max(10, args.video_fps * 3)
                     next_tick = time.time()
                     print(f"[INFO] FPS設定を反映: video_fps={args.video_fps} infer_fps={args.infer_fps}")
-                predict_kwargs = dict(conf=args.conf, iou=args.iou, imgsz=args.imgsz, verbose=False)
+                predict_kwargs = dict(
+                    conf=args.conf, iou=args.iou, imgsz=args.imgsz, verbose=False,
+                    rect=True,  # production inference condition; do not depend on Ultralytics default
+                )
                 if args.device and args.device != "auto":
                     predict_kwargs["device"] = args.device
 

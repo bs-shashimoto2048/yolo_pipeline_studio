@@ -100,3 +100,33 @@ local環境（`projects/`配下）が失われた場合、以下の手順でこ�
 ## 変更していないもの
 `data_manifests/*_split_v1.csv`・`*_split_v2.csv`・annotation・raw/processed画像・dataset・
 アプリケーションコードは本Checkpointで一切変更していません。
+
+## Production runtime letterbox condition（Issue #25、2026-09-29追記）
+
+**注意**: 本節は現行runtimeの推論条件についての追記であり、上記「最終採用構成」節の
+`meter_src004`情報（`candidate_roi_v1_5ac`、conf=0.25）を現在の状態へ書き換えるものではない。
+`meter_src004`の現在の採用状態（`candidate_roi_v3_5`、conf=0.80）とruntime letterbox条件の
+詳細は [`meter_src004_roi_v3_provenance.md`](meter_src004_roi_v3_provenance.md) を参照。
+
+- 現行image predict / video inferenceは、`backend/workers/predict_worker.py` /
+  `backend/workers/predict_video_worker.py` の `model.predict()` 呼び出しに **`rect=True`を明示**する
+  （Issue #25で実装）。
+- これは**挙動変更ではない**。Issue #25以前から、Ultralytics 8.4.83の`Model.predict()`は
+  predictモードの既定値として`rect=True`をハードコードしており（`rect`未指定時点で実際には
+  既にrect=Trueが使われていた）、Issue #25はこの既存条件をコード上に明示して固定しただけである。
+- project preprocessing出力サイズと、YOLOへの実際の入力tensor sizeは**別概念**である:
+  - `meter_src002`/`meter_src003`のproject preprocessing出力: **640×360**
+  - 上記画像がrect=Trueで letterbox された後のYOLO input tensor: **384×640**（stride=32単位の
+    最小矩形padding。正方形640×640ではない）
+- Ultralyticsの標準validation（`model.train()`終了時の自動validationを含む）は、`mode=="val"`のとき
+  常にrectangular validation（rect=Trueのバッチ内aspect比グルーピング）を使用する（Ultralytics全体の
+  標準仕様）。そのため、本文書記載のP/R/mAP系のVal評価数値とruntimeのrect条件は、整合している
+  可能性が高い。
+- 一方、historicalなExact Match系custom evaluation（本文書§「評価の位置づけ」記載のExact Match数値）が
+  実際にどのrect条件で計算されたかは、当時の評価scriptが現存しないため**確認不能**である。
+- Issue #25では、production weightそのものを用いた非Test・非Hard-Val画像によるrect=True/False診断
+  （digital 45枚、Checkpoint 2参照）を実施した。prediction差は一部確認されたが、一貫した優劣は
+  見られなかった。この診断値はTrain画像由来の**参考値**であり、Val精度・production精度としては
+  扱わない。
+- 上記の結果、既存のrect=True相当の挙動を維持することとし、production設定（selected_model.json・
+  conf・ROI・preprocess・weight）は変更していない。

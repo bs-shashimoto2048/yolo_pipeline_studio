@@ -173,6 +173,7 @@ def main() -> int:
             name="outputs",
             exist_ok=True,
             stream=True,  # 1枚ずつ処理を進め、進捗を逐次更新できるようにする
+            rect=True,  # production inference condition; do not depend on Ultralytics default
         )
         if args.device and args.device != "auto":
             kwargs["device"] = args.device

@@ -303,6 +303,20 @@ def test_display_frame_not_fed_back_as_inference_input() -> None:
     check("worker writes annotated frame only after plot()", src.index("results[0].plot(") < src.index("_atomic_write_jpg_bytes(latest"))
 
 
+def test_predict_kwargs_rect_explicit() -> None:
+    """production runtime条件の固定化（Issue #25）: 初期生成・live settings refresh再生成の
+
+    両方の predict_kwargs = dict(...) に rect=True が明示されていることをソースレベルで確認する。
+    片方だけ修正するとrefresh後にrect指定が消えるため、2箇所とも検査する。
+    """
+    full_src = (Path(__file__).resolve().parents[1] / "workers" / "predict_video_worker.py").read_text(encoding="utf-8")
+    blocks = full_src.split("predict_kwargs = dict(")
+    check("predict_kwargs = dict( appears exactly twice (初期生成 + refresh再生成)", len(blocks) - 1 == 2)
+    for i, block in enumerate(blocks[1:], start=1):
+        kwargs_block = block.split(")", 1)[0]
+        check(f"predict_kwargs block #{i} has rect=True", "rect=True" in kwargs_block)
+
+
 def main() -> None:
     test_selected_resolution_src004()
     test_selected_resolution_digital()
@@ -315,6 +329,7 @@ def main() -> None:
     test_apply_frame_preprocess_invalid_roi_raises()
     test_apply_frame_preprocess_none_passthrough()
     test_display_frame_not_fed_back_as_inference_input()
+    test_predict_kwargs_rect_explicit()
     print("\nALL VIDEO SELECTED-PREPROCESS SMOKE TESTS PASSED")
 
 
