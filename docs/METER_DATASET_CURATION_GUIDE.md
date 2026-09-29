@@ -314,6 +314,266 @@ ROI（対象領域のみをcrop→resize width640）を導入した結果、同�
 
 ---
 
+## 13. End-to-end workflow — raw取得からproduction acceptanceまで
+
+この章は、次回案件で「何から始め、どこで止まり、失敗したらどこへ戻るか」を再現するための実行順である。
+個別案件の数値は異なっても、**データの独立性・GT品質・評価分離・runtime整合を順番に確認する**という考え方は再利用できる。
+
+| Step | 入力 | 主な作業 | 人が判断すること | 機械検証 | 完了条件 | 次へ進めない条件 / 戻り先 |
+|---|---|---|---|---|---|---|
+| 1. raw inventory | raw画像 | source/session/project別の実枚数を数える | source境界が妥当か | 重複stem・破損・画像サイズ | 実測件数とsource対応が記録済み | source不明 → 収集/整理へ戻る |
+| 2. representative sampling | raw | 時系列近接・見た目類似をまとめ代表候補化 | 同一状態とみなせるか | timestamp/aHash/Hamming距離 | representative候補とclusterが説明可能 | 閾値根拠不明 → sampling設計へ戻る |
+| 3. annotation | 代表候補 | bbox/class/reading GT作成 | 7桁が画像単独で読めるか | bbox数・class・座標 | annotation作成済み | ambiguous → 除外/保留 |
+| 4. annotation audit | annotation | GT再確認 | transition/partialを確定できるか | duplicate bbox、範囲、reading整合 | primary/ambiguous等が分類済み | unresolved → reviewへ戻る |
+| 5. temporal/visual grouping | primary | near-duplicateをcluster化 | cluster境界の妥当性 | cluster_id欠損/重複 | 全対象にcluster_id | 連続重複が残る → samplingへ |
+| 6. reading grouping | cluster | 同一readingを上位groupへ統合 | GTが同一と確定できるか | reading_group overlap候補 | reading_group_id確定 | GT疑義 → annotation auditへ |
+| 7. ambiguous除外 | audit済みデータ | primary/excludedを確定 | 教師化してよいか | 除外カテゴリ件数 | 除外理由が記録済み | 無理な推定GT → auditへ |
+| 8. split設計 | primary groups | group単位でTrain/Val/Test配分 | 物理的境界に問題ないか | stem/cluster/reading overlap | leakage=0 | overlap有 → grouping/splitへ |
+| 9. split freeze | split draft | Testを固定・hash記録 | 評価用として妥当か | row数/hash/存在整合 | freeze記録完成 | GT未確定 → auditへ |
+| 10. baseline training | Train/Val | baseline学習 | 学習が成立しているか | loss/NaN/OOM/成果物 | baseline指標記録 | dataset不備 → split/annotationへ |
+| 11. Val評価 | Val | 指標・confidence比較 | 失敗がモデルかデータか | reading/7-detect/class等 | failure modeを説明可能 | 原因不明 → failure analysisへ |
+| 12. failure analysis | Val/非Test実画像 | 誤り分類 | GT/物理状態/前処理を目視 | missing/extra/wrong class等 | 原因仮説と証拠 | 診断不成立 → clean input取得へ |
+| 13. hard-example mining | failure candidates | 候補抽出・dedup・review | primary/ambiguous | atomic-unit overlap | Train追加と独立holdout確保 | holdout無し → split再設計 |
+| 14. independent Hard-Val | Hard-Val | 一回評価 | failure mode改善を確認 | baseline/candidate比較 | 改善/非改善を記録 | tuningに使った → holdout再設計 |
+| 15. ROI/preprocess検討 | failure analysis | crop/resize等の候補比較 | ROIが対象を安定包含するか | 座標・出力サイズ・処理順 | training/runtime仕様が固定 | runtime不一致 → preprocess実装へ |
+| 16. candidate比較 | Val | baseline対candidate | 実用上の差があるか | 同一条件の指標 | 採否根拠が説明可能 | 条件不一致 → 評価設計へ |
+| 17. runtime wiring | candidate | selected model/conf/preprocess配線 | 設定が意図どおりか | resolved model/conf/order | runtime解決値確認 | fallback誤り → runtime実装へ |
+| 18. live acceptance | 実カメラ | clean liveで受入 | 実運用で7桁が妥当か | resolved設定・ログ | accepted/rejected記録 | offlineとの差 → failure analysisへ |
+| 19. provenance | 採用構成 | hash/設定/根拠を記録 | 残存リスク | hash/commit参照 | 復元可能な記録 | artifact所在不明 →永続化設計へ |
+| 20. production | provenance済み構成 | 運用開始 | 変更の妥当性 | smoke/監視 | rollback可能 | 再現不能 → production化しない |
+
+### 13.1 戻り先を先に決める
+
+このworkflowで重要なのは、各stepを直線的に「完了させる」ことではない。
+たとえばValでmissingが多い場合、すぐモデルサイズを上げるのではなく、**ROI・前処理・bbox/GT・対象pixelサイズ**を先に確認する。
+GT疑義が見つかった場合はtrainingへ進まずannotation auditへ戻る。runtimeだけ精度が落ちる場合はtrainingではなく
+preprocessing/runtime wiringへ戻る。この戻り先を明示しておくことで、「とりあえず再学習」を減らせる。
+
+## 14. Representative sampling — 連続1000枚を1000独立サンプルと数えない
+
+固定カメラでは、時間的に近いフレームほど同じreading・照明・姿勢を共有しやすい。
+そのため本プロジェクトでは、timestamp近接とperceptual hashを使って連続フレームの類似性を調べ、
+near-duplicate群を\`cluster_id\`として扱った。
+
+今回の一次資料で確認できる実装要素は以下である。
+
+- digit領域のaHash256
+- Hamming距離 \`<=4\` をnear-duplicate判定に使用
+- 時系列で連続する類似frameをcluster化
+- 同じ\`reading_gt\`が離れたclusterにも出現する場合は、さらに\`reading_group_id\`で統合
+- 同一readingが長く継続する状態をfreeze blockとして扱う
+
+ここでの一般化した実務原則は、**「1000枚ある」ではなく、「独立したreading/状態/条件がいくつあるか」を数える**
+ことである。1秒間隔で1000枚撮影しても、表示値・照明・角度がほぼ変化しなければ、1000の独立情報ではない。
+
+一方、samplingの比率や時間閾値を本案件の値から他案件へそのまま移植してはいけない。
+撮影周期、対象物の変化速度、シャッター条件が異なれば適切な閾値も異なるため、次案件では
+「どの条件なら同一状態とみなせるか」を先に観察して決める。
+
+## 15. Annotation QA protocol — GTを学習データより先に疑う
+
+### 15.1 目視reviewの順序
+
+1. 画像単独で7桁すべてが読めるか
+2. bboxが期待数7個あるか
+3. classが0〜9の範囲か
+4. bbox座標が画像内にあるか
+5. x順で7桁のreadingとして整合するか
+6. 回転中・遷移中digitがないか
+7. 同一位置に複数bbox/classがないか
+8. 周辺フレームを見なければ決められないGTになっていないか
+
+**周辺時系列から逆算しないと確定できないdigitを、画像単独GTとして確定しない**ことが重要である。
+src004ではB/C/D/ambiguousをprimaryから除外した。
+
+### 15.2 review結果の状態
+
+| 状態 | 意味 | 処置 |
+|---|---|---|
+| confirmed_current | 現annotationが画像単独で妥当 | 維持 |
+| confirmed_error | 現annotationが誤りと確認 | 根拠を記録して修正 |
+| unresolved | 画像単独で確信できない | primary評価/学習から除外 |
+| rescue | 再reviewで明確なGTを確定可能 | 修正後に再監査 |
+| reject | 物理的曖昧さ等で教師化不適 | annotation対象外/除外 |
+
+src004 hard-exampleでは127 atomic unitを目視し、一次primary 99件から再確認を経て最終96件へ絞った。
+後のprovenanceで、再確認時に見つかった誤読9件は**6件を値修正、3件をrescue失敗として除外**したことが確定している。
+このように、annotation後にも「書いたラベルを正しい前提で扱わない」工程を置く。
+
+## 16. Split freeze / Test hygiene — TestをVal化させない
+
+Testの本質は「一度しか推論してはいけない」ことではなく、
+**採用判断・confidence選定・hyperparameter調整へ繰り返し使うと、Testが実質的にValへ変わる**ことである。
+
+src002ではv1 Testの2stemについて後からGT誤りが確認された。
+対応は「Test画像を入れ替える」ことではなく、v1をhistorical benchmarkとして保存したまま、
+v2側でreading_gt訂正履歴を明示する方式を取った。
+
+重要な区別:
+
+- **v1 Test画像集合**: freeze済み、stem構成維持
+- **v1 GT**: 当時のhistorical benchmarkに使われた
+- **v2 GT**: 2stem訂正後の正しいGT
+- **5N評価**: v1 GT基準のhistorical result
+- **以後の採用判断**: consumed Testをtuningへ戻さずVal中心で実施
+
+GT訂正によって新たなreading-level leakageが見つかった場合は、古い結果を無理に「最新版」として扱わず、
+どのGT versionで評価したかを明示する。
+
+## 17. Confidence threshold — confidenceはaccuracyではない
+
+confidence thresholdは「モデルの正しさ」そのものではなく、**検出候補を残すためのfilter条件**である。
+したがって、thresholdを0.25から0.80へ上げたことを「モデル精度が上がった」と表現してはいけない。
+
+### 17.1 offline thresholdとoperational threshold
+
+- **offline Val threshold**: Val上のreading/検出件数等を比較し、モデル選定のために使う
+- **operational threshold**: 実カメラでノイズやfalse detectionを抑えつつ必要桁を維持できる運用値
+
+src004のproduction confは最終的に0.25から0.80へ変更された。
+この0.80は、selected video inference経路で実カメラ受入を行い、7/7 detectionとサブ桁変化を確認したことによる
+**運用設定の昇格**である。Standard Val58 / Hard-Val27をconf=0.80で再評価して選んだ値ではない。
+
+したがって文書上は、\`model accuracy\`、\`offline model-selection conf\`、\`production operational conf\`
+を別欄で記録する。
+
+## 18. Offline validation / live validation / display artifactを混同しない
+
+| 種別 | 主な目的 | 注意 |
+|---|---|---|
+| Standard Val | model/conf選定 | tuningに使用可 |
+| Hard-Val | failure mode改善確認 | Train/conf tuningへ混ぜない |
+| Test | 最終評価 | consumed後のtuning再利用を避ける |
+| saved clean real image | runtimeに近い診断 | 保存前処理の有無を確認 |
+| clean live frame | 実カメラ受入 | raw/cleanであることを確認 |
+| annotated display frame | UI表示 | **再推論入力にしない** |
+| true runtime inference | 実運用経路 | resolved model/conf/preprocessを確認 |
+
+Issue #17で重要だったのは、\`live/latest.jpg\`が**表示用annotation済みartifact**だった点である。
+これをraw camera frameとみなして再推論すると、overlay・再圧縮等が追加された画像をモデルへ入れることになり、
+confidence低下などを「本番workerの問題」と誤診しうる。
+
+これは「workerがannotated画像を再帰的に入力していた」という意味ではない。
+**診断者がdisplay artifactをraw相当として再利用したことが問題**であり、この区別を明記する。
+
+## 19. Failure analysis taxonomy — 「モデルが悪い」の前に切り分ける
+
+| Failure | 見え方 | 最初に確認するもの | 短絡してはいけない判断 |
+|---|---|---|---|
+| wrong class | 桁数は合うが数字が違う | crop/GT/confusion | すぐデータ増量 |
+| missing | 6桁以下 | 対象pixelサイズ、ROI、conf | モデルサイズ不足と断定 |
+| extra | 8桁以上 | NMS/conf/背景誤検出 | GT誤りと断定 |
+| ordering | 数字はあるがreading順が違う | x中心・bbox | class精度問題と混同 |
+| bbox localization | classは正しいが位置不安定 | label bbox/IoU | class学習だけを疑う |
+| GT error | predictionが正しそうに見える | 元画像単独review | predictionを誤り扱い |
+| ambiguous physical state | 遷移digit | raw frame | 無理に正解を1つ決める |
+| preprocessing mismatch | offline良・runtime悪 | processing_order | 再学習で解決しようとする |
+| ROI mismatch | 対象欠け/縮尺異常 | raw基準座標 | model劣化と断定 |
+| confidence mismatch | missing/extraが閾値依存 | resolved conf | accuracy値と混同 |
+| camera/domain shift | 新条件だけ悪い | 照明/角度/機種 | 既存Valだけで判断 |
+| display artifact reuse | 再保存画像でconfidence低下 | input provenance | runtime worker不具合と断定 |
+| runtime config mismatch | UIと実推論が違う | selected_model/job resolved値 | 学習runの再現性を疑う |
+
+failure analysis logは companion template
+[\`METER_DATASET_REVIEW_TEMPLATE.md\`](METER_DATASET_REVIEW_TEMPLATE.md) を使う。
+
+## 20. Decision record — 採用しなかった案も残す
+
+重要な判断は、結果だけでなく次の4項目で残す。
+
+- **Decision**: 何を選んだか
+- **Evidence**: 何を根拠にしたか
+- **Rejected alternative**: 何を採用しなかったか
+- **Residual risk**: 何が未検証のまま残るか
+
+本案件の代表例:
+
+| Decision | Evidence | Rejected alternative | Residual risk |
+|---|---|---|---|
+| random image splitを使わない | near-duplicate/freeze構造 | 画像単位random split | grouping閾値は案件依存 |
+| ambiguousをprimaryから除外 | 画像単独GTを確定不能 | 時系列から逆算してlabel | transition認識は未対応 |
+| fixed Testを維持 | leakage/評価中立性 | tuningへ再利用 | consumed Testの将来利用制約 |
+| Hard-Val新設 | 2↔8 failure改善を独立評価 | 全hard例をTrainへ投入 | Hard-Val自体の規模は27 |
+| ROI採用 | 同一Val58で10/58→52/58、missing22→0 | full frame継続 | camera位置変更時の再調整 |
+| v3採用/v4不採用 | v4がStandard Valでv3未満 | oversampling/augmentation継続 | 別手法の余地 |
+| src004 conf0.80 | live acceptanceで7/7維持 | conf0.25継続 | 0.80でVal/Hard-Val再評価なし |
+| src003をproduction対象外 | live acceptance未完了 | digital共通成功として扱う | 将来再評価可能 |
+| selected_model.jsonはlocal-only | weight/runもprojects配下でGit外 | JSONだけGit管理 | clone単体ではruntime復元不可 |
+
+## 21. Practical "when to stop" criteria
+
+改善を続けるほど良いわけではない。停止条件を先に持つことで、Test/Hard-Valへの過適合や無限再学習を防ぐ。
+
+### 21.1 追加学習を止める
+
+- candidateがStandard Valでbaselineを下回り、改善仮説も説明できない
+- failure-specific candidateが通常Valを犠牲にしている
+- 追加augmentation/oversamplingが再現性のある改善を示さない
+- 既に問題がmodelではなくpreprocess/runtimeにある
+
+src004 v4はStandard Valでv3を下回ったため、Hard-Valへ進めず停止した。
+
+### 21.2 データを追加する
+
+- 特定class/状態が実際に不足している
+- liveで新しいfailure modeが確認された
+- camera/domain shiftがあり現datasetに代表例がない
+- ambiguousではなく、明確なGTを持つ独立例を収集できる
+
+「精度が低いから何でも追加」はしない。
+
+### 21.3 preprocess/ROIを疑う
+
+- missingが多い
+- 対象pixelサイズが小さい
+- runtimeだけ悪い
+- full-frame内で対象が極端に小さい
+- 学習時とruntimeのprocessing orderが異なる
+
+src004ではモデル大型化より先にROIで対象の実効幅を約7.54px→27.91pxへ増やし、同一Val58で
+Exact 10/58→52/58、missing22→0を確認した。
+
+### 21.4 モデル世代を変える
+
+- dataset/GT/preprocess/runtimeの問題を先に除外した
+- 同一条件比較が可能
+- 新モデルの改善が運用リスクを上回る
+
+YOLO26比較ではdigitalに小幅な改善場面があった一方、drumは悪化し、最終的に両方とも現行YOLOv8nを維持した。
+**新しいモデルだから採用する、という判断はしない。**
+
+### 21.5 運用対象から外す
+
+- live acceptanceを完了できない
+- domain条件が未定義
+- productionで再現可能なmodel/conf/preprocess構成を固定できない
+- 評価根拠がTestへの過度な合わせ込みに依存している
+
+src003はsplit/学習履歴があっても、production成功例として扱わない。
+
+## 22. Reusable templatesの使い分け
+
+本文は「なぜ・どう判断するか」を説明し、実作業で埋めるフォームは別文書に分離する。
+
+- [\`METER_DATASET_CURATION_CHECKLIST.md\`](METER_DATASET_CURATION_CHECKLIST.md)
+  - raw inventory
+  - annotation audit
+  - split integrity
+  - training/Val/live acceptance前のgate
+- [\`METER_DATASET_REVIEW_TEMPLATE.md\`](METER_DATASET_REVIEW_TEMPLATE.md)
+  - exclusion reason
+  - model candidate比較
+  - failure analysis log
+  - hard-example review
+  - live acceptance
+  - production provenance
+  - decision record
+
+これにより、本ガイドを読み物として維持しつつ、次回案件ではtemplateだけをコピーして作業記録に使える。
+
+
+---
+
 ## 最小実践ルール
 
 長文を読む時間がない場合は、最低限これだけ守る。
