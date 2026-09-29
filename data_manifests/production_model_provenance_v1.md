@@ -136,6 +136,12 @@ local環境（`projects/`配下）が失われた場合、以下の手順でこ�
 Issue #25でrect=Trueを固定した後、残りのUltralytics暗黙default依存パラメータを棚卸しし、
 現行production挙動と完全同値であることを実測確認できたものだけをコード上へ明示固定した。
 
+> **Issue #27追記**: 本節に記載のcontractは、以後
+> [`docs/PRODUCTION_INFERENCE_CONTRACT.md`](../docs/PRODUCTION_INFERENCE_CONTRACT.md)
+> （人間向け仕様の正本、strict/tolerance・skip/fail規則・contract version bumpルールを集約）と
+> `backend/tests/smoke_inference_contract.py`（回帰検知test）で継続的に維持・検証する。
+> 本節は判断根拠・時系列の記録として残す。
+
 ### 時系列
 - Issue #24: YOLO26 auditで、model依存defaults（`end2end`等）の重要性が判明。
 - Issue #25: `rect=True`を現行production contractとして明示固定。

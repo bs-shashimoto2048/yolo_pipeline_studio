@@ -242,6 +242,10 @@ production挙動と完全同値であることを実測確認できたものだ�
 [`production_model_provenance_v1.md`](production_model_provenance_v1.md)の同名節を参照
 （内容はdigital/drum共通のため、そちらに一本化して記載している）。
 
+> **Issue #27追記**: contractは以後
+> [`docs/PRODUCTION_INFERENCE_CONTRACT.md`](../docs/PRODUCTION_INFERENCE_CONTRACT.md)と
+> `backend/tests/smoke_inference_contract.py`で継続的に維持・検証する。
+
 ### drum固有の実測結果（Train所属画像20枚、v3 Train339からIssue #25 Checkpoint 2で既に
 freeze済みの一覧の先頭20件を再利用。結果を見てからの選定ではない）
 
