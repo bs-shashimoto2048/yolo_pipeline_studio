@@ -7,6 +7,12 @@ Val限定で比較、ONNXエクスポート・ONNX Runtime実推論検証まで�
 **本Issueは比較候補の作成・評価・ONNX納品が目的であり、本番モデルの自動切替は行っていない。**
 既存productionの`selected_model.json`・model artifact・conf設定はいずれも無変更（本文末尾で再確認済み）。
 
+> **【事後訂正】** 本文書作成後に実施した追加監査（[`docs/YOLO26_PT_ONNX_AUDIT.md`](YOLO26_PT_ONNX_AUDIT.md)）により、
+> §6.1のletterbox条件（rect）に関する記述に誤りがあったこと、§6.3/§6.4「Exact Match」の指標定義、
+> §6.5の固定conf比較値の一部が判明・訂正された。該当箇所に個別の訂正注記を付す。
+> **最終決定（ユーザー承認済み）: digital・drumともに現行YOLOv8n productionを維持し、YOLO26n候補への
+> 切替は行わない。** 詳細は監査文書§9を参照。
+
 ---
 
 ## 1. 対象と新規project
@@ -168,6 +174,12 @@ Python経由で呼び出して実行した。学習ジョブ/モデル一覧へ�
 - letterbox条件: 本プロジェクトは元々`rect=False`（既定letterbox、正方形640×640へアスペクト維持パディング）を
   学習・評価の両方で使用しており、ONNX static入力640×640とこの条件は既に一致するため、追加のrect比較は
   行っていない（rect=Trueは元runで一度も使われていない）。
+  > **【事後訂正】この記述は不正確だった。** 学習時（`rect: false`）とpredict時は別であり、
+  > Ultralyticsの`Model.predict()`はpredictモードの既定値として`rect=True`を内部的に設定する
+  > （`DEFAULT_CFG.rect=False`とは別。`engine/model.py:528`）。本文書のPT側評価（本セクション以降の
+  > baseline/candidate数値）は実際には`rect=True`（最小矩形letterbox、digital640×384相当・drum640×160相当）
+  > で行われており、ONNX側（常に正方形640×640）と入力shapeから一致していなかった。詳細・訂正後の値は
+  > [`docs/YOLO26_PT_ONNX_AUDIT.md`](YOLO26_PT_ONNX_AUDIT.md)§2.1・§5を参照。
 
 ### 6.2 指標定義（本Issue固有に定義、透明性のため明記）
 
@@ -177,6 +189,10 @@ Python経由で呼び出して実行した。学習ジョブ/モデル一覧へ�
   対応なし→missing、対応ありでclass不一致→wrong_class、対応先の無いpred box→extra。
 - **7-detect**: 検出box数がちょうど7個の画像数。
 - **Exact Match**: missing=0 かつ extra=0 かつ wrong_class=0（7桁とも正しく1個ずつ検出）の画像数。
+  > **【事後訂正】** 追加監査により、この指標は監査文書でいう`localized_exact`（位置対応ベース）に
+  > 相当し、監査文書が新たに定義した`reading_exact`（7個検出かつx昇順文字列がGTと完全一致）とは
+  > 別の指標であることが判明した。両者は本Issueの評価では近い値になったが、概念上区別する
+  > （[`docs/YOLO26_PT_ONNX_AUDIT.md`](YOLO26_PT_ONNX_AUDIT.md)§1参照）。
 - **character accuracy**: 全画像・全7位置に対する正解数の割合。
 - **edit distance**: 予測文字列とGT7桁文字列のLevenshtein距離（補助値）。
 - **2→8 / 8→2**: wrong_classのうちGT class=2をclass=8と誤った件数、およびその逆。
@@ -235,6 +251,15 @@ Python経由で呼び出して実行した。学習ジョブ/モデル一覧へ�
   そのまま使うと悪化する（91.5%→89.7%）。YOLO26n採用にはconfの見直しが前提になる。
 - **drum**: YOLO26nはbaselineより明確に劣化（96.6%→89.7%、best conf同士）。wrong_classが増加している。
 - 精度が劣化していても学習・ONNX出力・検証はいずれも完了させている（後述）。**本番採用は行っていない。**
+
+> **【事後訂正】** 上記の固定conf比較値（digital: baseline151/candidate148、drum: baseline46/candidate47）は、
+> §6.1の訂正注記のとおりPT側が`rect=True`で評価されていた影響を受けている。統一条件（rect=False）で
+> 再集計した値は digital: baseline152/candidate149（combined165枚）、drum: baseline48/candidate44（58枚）
+> であり、特にdrumはbaselineとcandidateの差がより明確になった。src002由来75枚単独ではbaseline63→candidate65、
+> src004の58枚（選定conf同士）ではbaseline55→candidate51。**方向性（digital微改善・drum劣化）は変わらない。**
+> 詳細は[`docs/YOLO26_PT_ONNX_AUDIT.md`](YOLO26_PT_ONNX_AUDIT.md)§5・§6を参照。
+>
+> **最終決定（ユーザー承認済み）: digital・drumともに現行YOLOv8n productionを維持する。**
 
 ---
 
@@ -321,6 +346,13 @@ letterbox前処理済みtensorを入力して比較した。
 数値乖離・説明不能なreading差はない。**7桁とも完全に一致しない差分stemが少数存在する**ことを隠さず報告する
 （「完全一致」とは言わない）。
 
+> **【事後訂正】** 上記は現象面の記述に留まっていた。追加監査でこの9件（digital4・drum5）の**根本原因を
+> 完全に特定した**: conf境界の数値差ではなく、PT側とONNX（static export）側で**入力テンソルの形状自体が
+> 一致していなかったこと**（§6.1訂正参照）が原因だった。統一条件下では、digital165枚・drum58枚の
+> **全件・全6conf水準でPT/ONNXのreadingが完全一致（100%）** することを確認した。ただしこれは
+> 「PTとONNXが互いに一致した割合」であり、GTに対する認識精度（reading_exact、84〜94%程度）とは別の指標
+> である点に注意。詳細は[`docs/YOLO26_PT_ONNX_AUDIT.md`](YOLO26_PT_ONNX_AUDIT.md)§3・§4を参照。
+
 ### 8.4 FPS/latency（参考値、ONNX Runtime CPU、`onnxruntime.InferenceSession.run()`のみの時間）
 
 | project | provider | batch | imgsz | warmup | N | 平均レイテンシ |
@@ -372,6 +404,10 @@ yolo26_dram_crop models: ['candidate_yolo26n_v1:best', 'candidate_yolo26n_v1:las
 `projects/yolo26_digital/`・`projects/yolo26_dram_crop/`配下（新規project・dataset・weight・ONNX・ログ等）は
 既存方針どおりGit管理外（`.gitignore`の`projects/`規則）であり、force addしていない。
 
+> **【事後追記】** 事後監査により4ファイル目 `docs/YOLO26_PT_ONNX_AUDIT.md` が追加された
+> （別commitで管理、詳細はそちらのcommit記録を参照）。`projects/yolo26_digital/`・
+> `projects/yolo26_dram_crop/`配下の成果物は削除・移動されていない（保管継続）。
+
 ---
 
 ## 12. 結論・今後の判断材料
@@ -382,3 +418,14 @@ yolo26_dram_crop models: ['candidate_yolo26n_v1:best', 'candidate_yolo26n_v1:las
 - 本番採用は行っていない。採用を検討する場合、少なくとも drumのwrong_class増加要因の追加調査と、
   digital/drumともにVal以外（Hard-Val・live acceptance）での再評価が必要（いずれも本Issueの範囲外、
   Test/Hard-Valは本Issueで一切使用していない）。
+
+> **【最終決定・事後追記】** 上記の判断材料に加え、事後監査（[`docs/YOLO26_PT_ONNX_AUDIT.md`](YOLO26_PT_ONNX_AUDIT.md)）
+> でletterbox条件の不一致を修正した上で再評価した結果も踏まえ、**ユーザーはdigital・drumともに
+> 現行YOLOv8n productionを維持することを決定した**。YOLO26nのPT/ONNX成果物は比較候補として保管し、
+> 本番へは切り替えない。
+
+## 関連文書
+
+- [`docs/YOLO26_PT_ONNX_AUDIT.md`](YOLO26_PT_ONNX_AUDIT.md) — 事後監査・訂正・最終決定の記録
+- [`../data_manifests/yolo26_digital_provenance.md`](../data_manifests/yolo26_digital_provenance.md)
+- [`../data_manifests/yolo26_dram_crop_provenance.md`](../data_manifests/yolo26_dram_crop_provenance.md)

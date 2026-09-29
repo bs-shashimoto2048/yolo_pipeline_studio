@@ -8,6 +8,12 @@ drum側成果物の記録。**production採用ではなく比較候補**。既�
 本ファイルは drum 側の再現・復元に必要な事実の記録に特化する。project名は指定どおり **`yolo26_dram_crop`**
 （`drum`ではなく`dram`表記を維持）。
 
+> **【事後訂正・最終決定】** 事後監査（[`docs/YOLO26_PT_ONNX_AUDIT.md`](../docs/YOLO26_PT_ONNX_AUDIT.md)）により
+> §5・§7の一部数値の前提条件に誤りがあったことが判明し訂正した（詳細は各節の訂正注記を参照）。
+> **ユーザー承認により、drumは現行YOLOv8n（`candidate_roi_v3_5:best`, conf=0.80）を維持し、
+> 本候補（YOLO26n）への切替は行わない。** 本ファイルが記録する学習条件・モデルhash・ONNX仕様自体に
+> 変更はない。
+
 ## 1. Source（現行productionと同一のデータ条件）
 
 - source project: `meter_src004`
@@ -53,13 +59,24 @@ drum側成果物の記録。**production採用ではなく比較候補**。既�
 
 | | baseline(best conf=0.50) | candidate(best conf=0.40) | baseline@現行conf0.80 | candidate@現行conf0.80 |
 |---|---|---|---|---|
-| Exact Match | 56/58 (96.6%) | 52/58 (89.7%) | 46/58 (79.3%) | 47/58 (81.0%) |
+| Exact Match（＝localized_exact、下記訂正参照） | 56/58 (96.6%) | 52/58 (89.7%) | 46/58 (79.3%) | 47/58 (81.0%) |
 
 **YOLO26n候補はbest conf同士の比較でbaselineより明確に劣化している**（wrong_classがconf 0.40〜0.60帯で
 一貫して5件、baselineの1件より多い。2→8/8→2の混同ではない）。現行production conf=0.80に固定した場合は
 候補がわずかに上回るが、両モデルともbest confから離れた条件での数値であり実力差を反映したものではない。
 精度が劣化しているという事実を隠さず記録する（本Issueの完了条件は学習・ONNX出力・検証の完了であり、
 精度改善そのものではない）。conf grid全体の詳細は比較文書§6.4参照。
+
+> **【事後訂正】** 上表の「Exact Match」は監査文書でいう`localized_exact`に相当し、監査で新設した
+> `reading_exact`とは別指標。また上表はPT評価時に`rect=True`（Ultralyticsのpredictモード既定値）が
+> 適用されていたことが判明し、ONNX側（常に正方形640×640）とletterbox条件が一致していなかった。
+> 統一条件（rect=False）で再集計した`reading_exact`は、選定conf同士（両モデルともconf=0.50）で
+> **baseline55/58・candidate51/58（改善0/悪化4）**、**現行production conf=0.80固定では
+> baseline48/58・candidate44/58**（訂正前の「46→47候補がわずかに上回る」という記述は誤りで、
+> 統一条件下では逆にbaselineが明確に上回る）。詳細は
+> [`docs/YOLO26_PT_ONNX_AUDIT.md`](../docs/YOLO26_PT_ONNX_AUDIT.md)§5・§6を参照。
+>
+> **最終決定: ユーザー承認によりdrumは現行YOLOv8nを維持する。**
 
 ## 6. ONNXエクスポート
 
@@ -85,6 +102,12 @@ drum側成果物の記録。**production採用ではなく比較候補**。既�
   1box分の増減（詳細は比較文書§8.3）
 - CPU推論レイテンシ参考値: 平均15.61ms/image（batch=1, imgsz=640, forward呼び出しのみ）
 
+> **【事後訂正】** 上記5stemの不一致は「conf境界の数値差」ではなく、**PT/ONNXの入力テンソル形状不一致**
+> （rect=True/False混在、上記§5の訂正参照）が根本原因だったことが判明した。統一条件（rect=False、
+> Val全件58枚）で再検証した結果、**drum58枚・全6conf水準でPT/ONNXのreadingが完全一致（100%）**
+> することを確認した（GTに対する認識精度100%という意味ではない）。詳細は
+> [`docs/YOLO26_PT_ONNX_AUDIT.md`](../docs/YOLO26_PT_ONNX_AUDIT.md)§3・§4を参照。
+
 ## 8. 復元・再現手順
 
 1. `projects/yolo26_dram_crop`（project定義・classes.yaml・dataset・run・export一式）はGit管理外のため、
@@ -103,4 +126,11 @@ drum側成果物の記録。**production採用ではなく比較候補**。既�
 - 既存v3 split manifest・独立Hard-Val27は無変更、いずれも学習・評価に不使用
 - Test/Hard-Valは学習・評価・ONNX検証のいずれにも使用していない（漏洩0件を機械検証済み）
 - 本番モデルへの自動切替は行っていない（`yolo26_dram_crop`に`selected_model.json`は作成していない）
-- Git管理はこの3ファイル（本ファイル・digital側provenance・比較文書）のみ
+- Git管理はこの3ファイル（本ファイル・digital側provenance・比較文書）に加え、事後監査文書
+  `docs/YOLO26_PT_ONNX_AUDIT.md`を追加した計4ファイル
+
+## 関連文書
+
+- [`docs/YOLO26_RETRAIN_ONNX_COMPARISON.md`](../docs/YOLO26_RETRAIN_ONNX_COMPARISON.md)
+- [`docs/YOLO26_PT_ONNX_AUDIT.md`](../docs/YOLO26_PT_ONNX_AUDIT.md) — 事後監査・訂正・最終決定の記録
+- [`yolo26_digital_provenance.md`](yolo26_digital_provenance.md)

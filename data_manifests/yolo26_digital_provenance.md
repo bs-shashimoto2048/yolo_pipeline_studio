@@ -7,6 +7,12 @@ digital側成果物の記録。**production採用ではなく比較候補**。�
 詳細な評価条件・結果・ONNX検証は [`docs/YOLO26_RETRAIN_ONNX_COMPARISON.md`](../docs/YOLO26_RETRAIN_ONNX_COMPARISON.md) を参照。
 本ファイルは digital 側の再現・復元に必要な事実の記録に特化する。
 
+> **【事後訂正・最終決定】** 事後監査（[`docs/YOLO26_PT_ONNX_AUDIT.md`](../docs/YOLO26_PT_ONNX_AUDIT.md)）により
+> §5・§7の一部数値の前提条件に誤りがあったことが判明し訂正した（詳細は各節の訂正注記を参照）。
+> **ユーザー承認により、digitalは現行YOLOv8n（`production_combined_v2_5z:best`, conf=0.60）を維持し、
+> 本候補（YOLO26n）への切替は行わない。** 本ファイルが記録する学習条件・モデルhash・ONNX仕様自体に
+> 変更はない。
+
 ## 1. Source（現行productionと同一のデータ条件）
 
 - source project: `meter_digital_combined`
@@ -51,9 +57,20 @@ digital側成果物の記録。**production採用ではなく比較候補**。�
 
 | | baseline(best conf=0.60) | candidate(best conf=0.50) | baseline@現行conf0.60 | candidate@現行conf0.60 |
 |---|---|---|---|---|
-| Exact Match | 151/165 (91.5%) | 153/165 (92.7%) | 151/165 | 148/165 |
+| Exact Match（＝localized_exact、下記訂正参照） | 151/165 (91.5%) | 153/165 (92.7%) | 151/165 | 148/165 |
 
 conf grid全体・character accuracy・missing/extra/wrong_class・2→8/8→2等の詳細は比較文書§6.3参照。
+
+> **【事後訂正】** 上表の「Exact Match」は監査文書でいう`localized_exact`に相当し、監査で新設した
+> `reading_exact`とは別指標。また上表はPT評価時に`rect=True`（Ultralyticsのpredictモード既定値、
+> `rect=False`という学習時設定とは別）が適用されていたことが判明し、ONNX側（常に正方形640×640）と
+> letterbox条件が一致していなかった。統一条件（rect=False）で再集計した`reading_exact`は
+> baseline152/165・candidate149/165（現行conf0.60固定、combined165枚）、baseline best(conf0.6)=152/165・
+> candidate best(conf0.5)=155/165（combined165枚）、**本採用判断の主対象src002由来75枚のみでは
+> baseline63/75・candidate65/75（改善8/悪化6）**。詳細は
+> [`docs/YOLO26_PT_ONNX_AUDIT.md`](../docs/YOLO26_PT_ONNX_AUDIT.md)§5・§6を参照。
+>
+> **最終決定: ユーザー承認によりdigitalは現行YOLOv8nを維持する。**
 
 ## 6. ONNXエクスポート
 
@@ -78,6 +95,12 @@ conf grid全体・character accuracy・missing/extra/wrong_class・2→8/8→2�
   1box分の増減（詳細は比較文書§8.3）
 - CPU推論レイテンシ参考値: 平均16.03ms/image（batch=1, imgsz=640, forward呼び出しのみ）
 
+> **【事後訂正】** 上記4stemの不一致は「conf境界の数値差」ではなく、**PT/ONNXの入力テンソル形状不一致**
+> （rect=True/False混在、上記§5の訂正参照）が根本原因だったことが判明した。統一条件（rect=False、
+> Val全件165枚）で再検証した結果、**digital165枚・全6conf水準でPT/ONNXのreadingが完全一致（100%）**
+> することを確認した（GTに対する認識精度100%という意味ではない）。詳細は
+> [`docs/YOLO26_PT_ONNX_AUDIT.md`](../docs/YOLO26_PT_ONNX_AUDIT.md)§3・§4を参照。
+
 ## 8. 復元・再現手順
 
 1. `projects/yolo26_digital`（project定義・classes.yaml・dataset・run・export一式）はGit管理外のため、
@@ -95,4 +118,11 @@ conf grid全体・character accuracy・missing/extra/wrong_class・2→8/8→2�
 - 既存v2 manifestは無変更
 - Test/Hard-Valは学習・評価・ONNX検証のいずれにも使用していない（漏洩0件を機械検証済み）
 - 本番モデルへの自動切替は行っていない（`yolo26_digital`に`selected_model.json`は作成していない）
-- Git管理はこの3ファイル（本ファイル・drum側provenance・比較文書）のみ
+- Git管理はこの3ファイル（本ファイル・drum側provenance・比較文書）に加え、事後監査文書
+  `docs/YOLO26_PT_ONNX_AUDIT.md`を追加した計4ファイル
+
+## 関連文書
+
+- [`docs/YOLO26_RETRAIN_ONNX_COMPARISON.md`](../docs/YOLO26_RETRAIN_ONNX_COMPARISON.md)
+- [`docs/YOLO26_PT_ONNX_AUDIT.md`](../docs/YOLO26_PT_ONNX_AUDIT.md) — 事後監査・訂正・最終決定の記録
+- [`yolo26_dram_crop_provenance.md`](yolo26_dram_crop_provenance.md)
