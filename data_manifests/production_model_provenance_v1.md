@@ -130,3 +130,54 @@ local環境（`projects/`配下）が失われた場合、以下の手順でこ�
   扱わない。
 - 上記の結果、既存のrect=True相当の挙動を維持することとし、production設定（selected_model.json・
   conf・ROI・preprocess・weight）は変更していない。
+
+## Production inference contract — remaining defaults（Issue #26、2026-09-29追記）
+
+Issue #25でrect=Trueを固定した後、残りのUltralytics暗黙default依存パラメータを棚卸しし、
+現行production挙動と完全同値であることを実測確認できたものだけをコード上へ明示固定した。
+
+### 時系列
+- Issue #24: YOLO26 auditで、model依存defaults（`end2end`等）の重要性が判明。
+- Issue #25: `rect=True`を現行production contractとして明示固定。
+- Issue #26（本節）: 残りのdefaultsを監査し、同値確認できたもののみ追加固定。
+
+### Pinned（`backend/workers/predict_worker.py` / `predict_video_worker.py` へ明示、
+image predict・video inferenceとも同一、非Test画像digital20枚・drum20枚で個別・組合せとも
+reading/detection count/class列が100%一致することを実測確認済み）
+
+```text
+rect=True
+max_det=300
+agnostic_nms=False
+augment=False
+batch=1
+quantize=None
+```
+
+### Decision Record（固定しなかったもの）
+
+```text
+device: intentionally dynamic（"auto"時はUltralyticsの自動選択に委ねる。実測ではcuda:0が
+  解決されるが、実行環境依存のため固定しない。現行コードも既にauto以外の時のみ明示する設計）
+classes: default unrestricted (None)、no explicit pin（非Test画像で同値確認済みだが、
+  10クラス全検出という現状の要件を超える保護的価値が薄く、コードの可読性を下げるだけと判断）
+end2end: model-dependent, not pinned for YOLOv8 production（現行production weightは
+  YOLOv8nでありDetectヘッド自体にone2one分岐が無い＝`model.end2end`は常にFalse。
+  `end2end=False`を明示しても非Test画像で出力は変化しないことを確認済みだが、これはYOLOv8n
+  固有の性質であり、YOLO26等end2end対応modelを将来採用する場合は個別に再評価が必要なため、
+  共通workerのkwargsへは固定しない）
+half: 後方互換の非推奨引数のため使用せず、代わりにquantize=Noneを固定（上記Pinned参照）。
+  実測ではdevice（CPU/CUDA）に関わらずpredictor.model.fp16=Falseで一貫しており、
+  device依存ではないことを確認済み
+verbose: 出力ログの詳細度のみに影響し、prediction結果（reading/検出/confidence等）には
+  一切影響しないため、本Issueの監査対象（production挙動）としては対象外
+```
+
+### 非Test診断（Train所属画像、digital20枚・drum20枚、結果を見る前にstemをfreeze）
+
+各parameterを個別に明示したcandidateと、現行baseline（rect=Trueのみ）を比較し、
+reading一致・detection count一致・class列一致がいずれも20/20（100%）、confidence/bbox差は
+全candidateで0（float誤差も含め完全一致）であることを確認した。最終的な組み合わせ
+（`max_det`+`agnostic_nms`+`augment`+`quantize`）でも同様に20/20で完全一致。
+`batch=1`は、image workerの実際の呼び出し形（`source=<directory>, stream=True`）でも
+個別に同値性を確認した。

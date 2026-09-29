@@ -359,7 +359,17 @@ def main() -> int:
         model = YOLO(args.weight)
         predict_kwargs = dict(
             conf=args.conf, iou=args.iou, imgsz=args.imgsz, verbose=False,
-            rect=True,  # production inference condition; do not depend on Ultralytics default
+            # 以下はIssue #25/#26でproduction inference contractとして明示固定した値。
+            # いずれもUltralytics 8.4.83の暗黙defaultと同値であることを実測確認済み
+            # （非Test画像でbaseline/candidate完全一致、詳細はdata_manifests配下のprovenance参照）。
+            # 挙動変更ではなく、将来のUltralyticsバージョン更新でdefaultが変わった場合に
+            # 現行production条件を固定する目的。
+            rect=True,
+            max_det=300,
+            agnostic_nms=False,
+            augment=False,
+            batch=1,
+            quantize=None,
         )
         if args.device and args.device != "auto":
             predict_kwargs["device"] = args.device
@@ -392,9 +402,12 @@ def main() -> int:
                     max_read_fail = max(10, args.video_fps * 3)
                     next_tick = time.time()
                     print(f"[INFO] FPS設定を反映: video_fps={args.video_fps} infer_fps={args.infer_fps}")
+                # 以下はIssue #25/#26のproduction inference contract（初期生成と同一。
+                # 詳細はそちらのコメント参照）。live settings refresh時も維持する。
                 predict_kwargs = dict(
                     conf=args.conf, iou=args.iou, imgsz=args.imgsz, verbose=False,
-                    rect=True,  # production inference condition; do not depend on Ultralytics default
+                    rect=True, max_det=300, agnostic_nms=False, augment=False,
+                    batch=1, quantize=None,
                 )
                 if args.device and args.device != "auto":
                     predict_kwargs["device"] = args.device

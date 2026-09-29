@@ -189,7 +189,8 @@ def main() -> None:
     r = client.get(f"{base}/no_job")
     check("missing job -> 404", r.status_code == 404)
 
-    # --- runtime推論条件の固定化（Issue #25）: model.predict()へrect=Trueが明示されていること ---
+    # --- runtime推論条件の固定化（Issue #25/#26）: model.predict()へproduction contractの
+    # パラメータが明示されていること ---
     # DRY_RUNではUltralytics自体を呼ばないため、ソースレベルでkwargs構築を確認する
     # （backend/tests/smoke_video_selected_preprocess.py と同じ構造検査の方式）。
     worker_src = (
@@ -199,6 +200,11 @@ def main() -> None:
     # （dict内の str(inputs_dir) 等の丸括弧に惑わされないよう、素朴な最初の ")" 分割は使わない）
     kwargs_block = worker_src.split("kwargs = dict(", 1)[-1].split('if args.device and args.device != "auto":', 1)[0]
     check("predict_worker.py kwargs has rect=True", "rect=True" in kwargs_block)
+    check("predict_worker.py kwargs has max_det=300", "max_det=300" in kwargs_block)
+    check("predict_worker.py kwargs has agnostic_nms=False", "agnostic_nms=False" in kwargs_block)
+    check("predict_worker.py kwargs has augment=False", "augment=False" in kwargs_block)
+    check("predict_worker.py kwargs has batch=1", "batch=1" in kwargs_block)
+    check("predict_worker.py kwargs has quantize=None", "quantize=None" in kwargs_block)
 
     print("\nALL PREDICTION SMOKE TESTS PASSED")
 

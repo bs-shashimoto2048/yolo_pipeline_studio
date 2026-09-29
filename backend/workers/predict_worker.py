@@ -173,7 +173,17 @@ def main() -> int:
             name="outputs",
             exist_ok=True,
             stream=True,  # 1枚ずつ処理を進め、進捗を逐次更新できるようにする
-            rect=True,  # production inference condition; do not depend on Ultralytics default
+            # 以下はIssue #25/#26でproduction inference contractとして明示固定した値。
+            # いずれもUltralytics 8.4.83の暗黙defaultと同値であることを実測確認済み
+            # （非Test画像でbaseline/candidate完全一致、詳細はdata_manifests配下のprovenance参照）。
+            # 挙動変更ではなく、将来のUltralyticsバージョン更新でdefaultが変わった場合に
+            # 現行production条件を固定する目的。
+            rect=True,
+            max_det=300,
+            agnostic_nms=False,
+            augment=False,
+            batch=1,
+            quantize=None,
         )
         if args.device and args.device != "auto":
             kwargs["device"] = args.device

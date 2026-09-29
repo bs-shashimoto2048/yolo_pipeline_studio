@@ -304,10 +304,10 @@ def test_display_frame_not_fed_back_as_inference_input() -> None:
 
 
 def test_predict_kwargs_rect_explicit() -> None:
-    """production runtime条件の固定化（Issue #25）: 初期生成・live settings refresh再生成の
+    """production runtime条件の固定化（Issue #25/#26）: 初期生成・live settings refresh再生成の
 
-    両方の predict_kwargs = dict(...) に rect=True が明示されていることをソースレベルで確認する。
-    片方だけ修正するとrefresh後にrect指定が消えるため、2箇所とも検査する。
+    両方の predict_kwargs = dict(...) に production contract（rect=True等）が明示されていることを
+    ソースレベルで確認する。片方だけ修正するとrefresh後に指定が消えるため、2箇所とも検査する。
     """
     full_src = (Path(__file__).resolve().parents[1] / "workers" / "predict_video_worker.py").read_text(encoding="utf-8")
     blocks = full_src.split("predict_kwargs = dict(")
@@ -315,6 +315,11 @@ def test_predict_kwargs_rect_explicit() -> None:
     for i, block in enumerate(blocks[1:], start=1):
         kwargs_block = block.split(")", 1)[0]
         check(f"predict_kwargs block #{i} has rect=True", "rect=True" in kwargs_block)
+        check(f"predict_kwargs block #{i} has max_det=300", "max_det=300" in kwargs_block)
+        check(f"predict_kwargs block #{i} has agnostic_nms=False", "agnostic_nms=False" in kwargs_block)
+        check(f"predict_kwargs block #{i} has augment=False", "augment=False" in kwargs_block)
+        check(f"predict_kwargs block #{i} has batch=1", "batch=1" in kwargs_block)
+        check(f"predict_kwargs block #{i} has quantize=None", "quantize=None" in kwargs_block)
 
 
 def main() -> None:

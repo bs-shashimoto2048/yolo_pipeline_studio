@@ -232,3 +232,29 @@ Standard Val58（§7）/ Frozen Hard-Val27（§8）の既存結果は、Issue #2
 （rect=True/Falseいずれの条件でも再実行していない）。これらhistorical custom evaluationが
 当時どのrect条件で計算されたかは、評価scriptが現存しないため確認不能（Issue #25 Checkpoint 1
 参照）。Test/Hard-ValはIssue #25でも一切使用していない。
+
+## 14. Production inference contract — remaining defaults（Issue #26、2026-09-29追記）
+
+Issue #25でrect=Trueを固定した後、残りのUltralytics暗黙default依存パラメータ
+（max_det/agnostic_nms/classes/half/augment/batch/device/end2end等）を棚卸しし、現行
+production挙動と完全同値であることを実測確認できたものだけをコード上へ明示固定した。
+時系列（#24→#25→#26）と固定/非固定の判断根拠の詳細は
+[`production_model_provenance_v1.md`](production_model_provenance_v1.md)の同名節を参照
+（内容はdigital/drum共通のため、そちらに一本化して記載している）。
+
+### drum固有の実測結果（Train所属画像20枚、v3 Train339からIssue #25 Checkpoint 2で既に
+freeze済みの一覧の先頭20件を再利用。結果を見てからの選定ではない）
+
+- 現行production（`candidate_roi_v3_5:best`, conf=0.80）で、`max_det=300`/`agnostic_nms=False`/
+  `augment=False`/`batch=1`/`quantize=None`をそれぞれ個別に明示したcandidateと、
+  現行baseline（rect=Trueのみ）を比較し、reading一致・detection count一致・class列一致が
+  いずれも20/20（100%）、confidence/bbox差は全candidateで0であることを確認した。
+- 最終的な組み合わせ（上記5パラメータ同時）でも20/20で完全一致。
+- `batch=1`は、image workerの実際の呼び出し形（`source=<directory>, stream=True`）でも
+  個別に同値性を確認した（drum20枚で20/20一致）。
+- `end2end=False`の安全確認（pinはしない、§13参照の考え方と同様）も実施し、現行YOLOv8n
+  weightでは出力に一切変化がないことを確認した上で、model依存のため共通workerへは固定していない。
+
+Pinした値・固定しなかった値の一覧、Decision Recordの正文は
+[`production_model_provenance_v1.md`](production_model_provenance_v1.md)を参照。
+本節はdrum固有の実測結果の記録に特化する。
