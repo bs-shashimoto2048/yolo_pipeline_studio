@@ -309,4 +309,11 @@ freeze済みの一覧の先頭20件を再利用。結果を見てからの選定
 
 Pinした値・固定しなかった値の一覧、Decision Recordの正文は
 [`production_model_provenance_v1.md`](production_model_provenance_v1.md)を参照。
+
+> **Issue #36追記**: 上記の「thresholdでは解決できない」という結論を受け、hard-negative
+> データセット追加による再学習（`candidate_roi_v4_hardneg`、Train339はここに記録された
+> ものから一切変更せず、新規66件のみ追加）を実施し、Val58・新規Frozen Hard-Val v2・
+> 独立acceptanceサンプルの全てで改善を確認したためproductionへ昇格した。詳細は
+> [`meter_src004_roi_v4_provenance.md`](meter_src004_roi_v4_provenance.md)を参照。
+> 本ファイルが記録するv3 Train339/Val58/Test41の内容自体は変更していない。
 本節はdrum固有の実測結果の記録に特化する。

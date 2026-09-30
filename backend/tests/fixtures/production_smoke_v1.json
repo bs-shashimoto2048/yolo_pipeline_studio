@@ -16,10 +16,10 @@
   },
   "drum": {
     "project": "meter_src004",
-    "train_job_id": "candidate_roi_v3_5",
+    "train_job_id": "candidate_roi_v4_hardneg",
     "weight_type": "best",
     "conf": 0.80,
-    "weight_sha256": "45c4d9054a30bd09a1a17d3eb53b87e0d26669b1387728ddc64fa8130f9e82db",
+    "weight_sha256": "cadd1d7df52b94004331be2d3c79c7dbc306c93802b3f5c3d455f2121061f595",
     "manifest": "data_manifests/meter_src004_split_v3.csv",
     "hard_val_manifest": "data_manifests/meter_src004_hard_val_v1.csv",
     "source_dir": "projects/yolo26_dram_crop/datasets/matched_source_v1/images/train",
