@@ -116,7 +116,11 @@ def _read_job(name: str, predict_job_id: str) -> dict | None:
         return None
     try:
         return json.loads(p.read_text(encoding="utf-8-sig"))
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, OSError):
+        # workerのjob.json書き込み（atomicなos.replace）と稀にタイミングが重なると、
+        # Windowsでは読込側が一時的にPermissionErrorになり得る（Issue #30で実測確認）。
+        # JSONDecodeError同様、"今は読めない"として扱う（呼び出し元は次のポーリングで
+        # 再取得できる。恒久的な欠損ではない）。
         return None
 
 

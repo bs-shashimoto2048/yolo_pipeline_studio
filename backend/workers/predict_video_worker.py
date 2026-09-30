@@ -42,8 +42,15 @@ def _acquire_job_lock(lock_path: Path, timeout: float = 5.0) -> None:
     ワーカーは別プロセスのため video_service を毎回importするより、この小さな
     ロジックだけをここでも持つ方が明快で依存も増えない（_terminate_existing_worker等、
     ワーカー関連コードで既に採用している自己完結スタイルと同じ）。
+
+    奪取判定はロックファイル自体の生成からの経過時間（st_mtime）で行う。以前は
+    「自分がリトライを始めてからtimeout秒経過したか」で奪取しており、保持側が
+    生きたまま高頻度で正常に取得・解放を繰り返す状況でも、リトライ側がたまたま
+    負け続けると誤って"stale"と判定し多重取得（lost update）を招き得た（Issue #30で
+    実測確認）。ロックファイルは保持側が取得するたびに新規作成されるため、正常な
+    競合下では常に生成直後（st_mtimeが新しい）のままであり、この方式なら
+    「保持側プロセスがクラッシュ等で解放し損ねた」場合にのみ奪取される。
     """
-    deadline = time.time() + timeout
     while True:
         try:
             fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
@@ -53,13 +60,15 @@ def _acquire_job_lock(lock_path: Path, timeout: float = 5.0) -> None:
             # 通常は FileExistsError（他者がロック保持中）だが、Windowsでは
             # 削除直後の再生成タイミングで PermissionError になることもあるため
             # OSError全体を「今は取れない」として扱い、リトライへ回す。
-            if time.time() > deadline:
+            try:
+                age = time.time() - lock_path.stat().st_mtime
+            except OSError:
+                age = 0.0  # 直前に解放された可能性が高く、次のos.openで取得できるはず
+            if age > timeout:
                 try:
                     lock_path.unlink()
                 except OSError:
                     pass
-                deadline = time.time() + timeout
-                continue
             time.sleep(0.05)
 
 
@@ -68,6 +77,22 @@ def _release_job_lock(lock_path: Path) -> None:
         lock_path.unlink()
     except OSError:
         pass
+
+
+def _atomic_replace(tmp: Path, dst: Path, attempts: int = 20) -> None:
+    """os.replace()は、宛先ファイルを別プロセス/スレッドが読込中の瞬間と重なると、
+    Windowsでは一時的にPermissionError（共有違反）になり得る（Issue #30で実測確認）。
+    読み手のhandleは読了後すぐ閉じられるため、通常は数ミリ秒以内に解消する。読み手側を
+    待たせる・変更するのではなく、書き手側の短い有界リトライで解消させる。
+    """
+    for attempt in range(attempts):
+        try:
+            os.replace(tmp, dst)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.01)
 
 
 def _update_job(job_json: Path, **fields: object) -> None:
@@ -79,7 +104,14 @@ def _update_job(job_json: Path, **fields: object) -> None:
         except (FileNotFoundError, json.JSONDecodeError):
             data = {}
         data.update(fields)
-        job_json.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        # 非atomicな書き込み（真上書き）だと、書き込み中に他プロセス/スレッドが読むと
+        # 空/破損した内容を読んでしまい得る（Issue #30。predict_worker.pyの同名関数と
+        # 同じ問題）。ロックは書き手同士の排他には有効だが、job.jsonを読むだけの経路
+        # （FastAPI側のget_job等）はこのロックに参加していないため、書き込み自体も
+        # atomicにする。
+        tmp = job_json.parent / (job_json.name + ".tmp")
+        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        _atomic_replace(tmp, job_json)
     finally:
         _release_job_lock(lock_path)
 

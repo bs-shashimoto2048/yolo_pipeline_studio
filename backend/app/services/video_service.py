@@ -192,17 +192,25 @@ _MAX_KNOWN_SOURCES = 20
 
 
 def _acquire_file_lock(lock_path: Path, timeout: float = 5.0) -> None:
-    """known_sources.json 更新用の簡易ファイルロック（排他生成方式）。
+    """known_sources.json / job.json 更新用の簡易ファイルロック（排他生成方式）。
 
     known_sources.json は FastAPI 本体（ポーリングでの状態取得時）と、
     別プロセスの映像推論ワーカー（接続確立を確認した直後）の**両方**から
     更新される。前者はスレッドプールで並行実行されるためスレッド間の
     read-modify-write 競合があり、後者は別OSプロセスのためスレッドロックでは
     守れない。ファイルの排他生成はOS/プロセスをまたいで有効なため、
-    両者を同じ仕組みで守れる。
+    両者を同じ仕組みで守れる。job.json用ロック（_job_lock_path）にも同じ関数を使う。
+
+    奪取判定はロックファイル自体の生成からの経過時間（st_mtime）で行う。以前は
+    「自分がリトライを始めてからtimeout秒経過したか」で奪取しており、保持側が
+    生きたまま高頻度で正常に取得・解放を繰り返す状況（update_settings()とワーカー側
+    _update_job()の並行実行等）でも、リトライ側がたまたま負け続けると誤って
+    "stale"と判定し多重取得（lost update）を招き得た（Issue #30で実測確認）。
+    ロックファイルは保持側が取得するたびに新規作成されるため、正常な競合下では
+    常に生成直後（st_mtimeが新しい）のままであり、この方式なら「保持側プロセスが
+    クラッシュ等で解放し損ねた」場合にのみ奪取される。
     """
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    deadline = time.time() + timeout
     while True:
         try:
             fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
@@ -212,14 +220,16 @@ def _acquire_file_lock(lock_path: Path, timeout: float = 5.0) -> None:
             # 通常は FileExistsError（他者がロック保持中）だが、Windowsでは
             # 削除直後の再生成タイミングで PermissionError になることもあるため
             # OSError全体を「今は取れない」として扱い、リトライへ回す。
-            if time.time() > deadline:
-                # 異常終了などでロックファイルが残置された場合は奪取して継続する
+            try:
+                age = time.time() - lock_path.stat().st_mtime
+            except OSError:
+                age = 0.0  # 直前に解放された可能性が高く、次のos.openで取得できるはず
+            if age > timeout:
+                # ロックファイル自体が長時間放置されている（異常終了等）場合のみ奪取する
                 try:
                     lock_path.unlink()
                 except OSError:
                     pass
-                deadline = time.time() + timeout
-                continue
             time.sleep(0.05)
 
 
@@ -329,13 +339,39 @@ def _job_lock_path(name: str, vid: str) -> Path:
     return Path(str(_job_json_path(name, vid)) + ".lock")
 
 
+def _write_job_json(path: Path, data: dict, attempts: int = 20) -> None:
+    """job.jsonをatomicに書き込む（一時ファイル + os.replace）。
+
+    真上書き（write_text直書き）だと、書き込み中に他プロセス/スレッドが読むと
+    空/破損した内容を読んでしまい得る（Issue #30。predict_worker.py/
+    predict_video_worker.pyの_update_jobと同じ問題）。job.jsonを読むだけの経路
+    （get_job等）はjob.json用ロックに参加していないため、書き込み自体もatomicにする。
+    os.replace()自体も、宛先を別プロセス/スレッドが読込中の瞬間と重なるとWindowsでは
+    一時的にPermissionErrorになり得るため、短い有界リトライで解消させる。
+    """
+    tmp = path.parent / (path.name + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    for attempt in range(attempts):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.01)
+
+
 def _read_job(name: str, vid: str) -> dict | None:
     p = _job_json_path(name, vid)
     if not p.exists():
         return None
     try:
         return json.loads(p.read_text(encoding="utf-8-sig"))
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, OSError):
+        # workerのjob.json書き込み（atomicなos.replace）と稀にタイミングが重なると、
+        # Windowsでは読込側が一時的にPermissionErrorになり得る（Issue #30で実測確認）。
+        # JSONDecodeError同様、"今は読めない"として扱う（呼び出し元は次のポーリングで
+        # 再取得できる。恒久的な欠損ではない）。
         return None
 
 
@@ -579,9 +615,7 @@ def start_job(name: str, req: VideoJobCreate) -> VideoJobInfo:
         "resolved_preprocess_profile": pre_settings.model_dump() if pre_settings is not None else None,
         "processing_order": preprocess_service.processing_order(pre_settings) if pre_settings is not None else None,
     }
-    _job_json_path(name, vid).write_text(
-        json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    _write_job_json(_job_json_path(name, vid), job)
     log_path = vdir / "video.log"
     log_path.touch()
 
@@ -623,9 +657,7 @@ def start_job(name: str, req: VideoJobCreate) -> VideoJobInfo:
     try:
         current = _read_job(name, vid) or job
         current["pid"] = proc.pid
-        _job_json_path(name, vid).write_text(
-            json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        _write_job_json(_job_json_path(name, vid), current)
     finally:
         _release_file_lock(lock_path)
 
@@ -677,9 +709,7 @@ def update_settings(name: str, vid: str, payload: VideoJobSettingsUpdate) -> Vid
         if payload.device is not None:
             job["device"] = payload.device
 
-        _job_json_path(name, vid).write_text(
-            json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        _write_job_json(_job_json_path(name, vid), job)
     finally:
         _release_file_lock(lock_path)
     return get_job(name, vid)
@@ -740,9 +770,7 @@ def stop_job(name: str, vid: str) -> VideoJobInfo:
             job["status"] = "stopped"
             job["finished_at"] = datetime.now().isoformat(timespec="seconds")
             job["message"] = "stopped by user"
-            _job_json_path(name, vid).write_text(
-                json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
+            _write_job_json(_job_json_path(name, vid), job)
     finally:
         _release_file_lock(lock_path)
     return get_job(name, vid)

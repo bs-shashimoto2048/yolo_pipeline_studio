@@ -17,6 +17,7 @@ import json
 import os
 import shutil
 import sys
+import time
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -37,15 +38,37 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
+def _atomic_replace(tmp: Path, dst: Path, attempts: int = 20) -> None:
+    """os.replace()は、宛先ファイルを別プロセス/スレッドが読込中の瞬間と重なると、
+    Windowsでは一時的にPermissionError（共有違反）になり得る（Issue #30で実測確認）。
+    読み手のhandleは読了後すぐ閉じられるため、通常は数ミリ秒以内に解消する。読み手側を
+    待たせる・変更するのではなく、書き手側の短い有界リトライで解消させる。
+    """
+    for attempt in range(attempts):
+        try:
+            os.replace(tmp, dst)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.01)
+
+
 def _update_job(job_json: Path, **fields: object) -> None:
     try:
         data = json.loads(job_json.read_text(encoding="utf-8-sig"))
     except (FileNotFoundError, json.JSONDecodeError):
         data = {}
     data.update(fields)
-    job_json.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    # 非atomicな書き込み（真上書き）だと、書き込み中（truncate直後〜再書き込み完了前）に
+    # 他プロセス/スレッドが読むと空/破損した内容を読んでしまい、JSONDecodeErrorや
+    # （Windowsでは特に）OSErrorを引き起こし得る（Issue #30で実測確認）。一時ファイルへ
+    # 書いてから os.replace() で置き換えることで、読み手には常に完全な旧内容か新内容の
+    # どちらかしか見えないようにする（predict_video_worker.py の _atomic_write_jpg_bytes /
+    # video_service._save_known_sources_at と同じ手法）。
+    tmp = job_json.parent / (job_json.name + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    _atomic_replace(tmp, job_json)
 
 
 def _rel_posix(path: Path, base: Path) -> str:

@@ -61,7 +61,15 @@ def wait_completed(proj: str, predict_job_id: str) -> str:
     final = "?"
     for _ in range(30):
         time.sleep(0.2)
-        final = json.loads(job_json.read_text(encoding="utf-8"))["status"]
+        try:
+            final = json.loads(job_json.read_text(encoding="utf-8"))["status"]
+        except (json.JSONDecodeError, OSError):
+            # workerはjob.jsonをatomicに書き込む（一時ファイル+os.replace）が、
+            # os.replace()自体が読込側のopenと重なるとWindowsでは一時的に
+            # PermissionErrorになり得る（Issue #30で実測確認）。恒久的な欠損では
+            # ないため、既存のポーリングループ内でそのまま次の試行へ進む
+            # （新規sleepは追加しない）。
+            continue
         if final in {"completed", "failed"}:
             break
     return final
