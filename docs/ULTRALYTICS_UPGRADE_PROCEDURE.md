@@ -149,16 +149,25 @@ for f in backend/tests/smoke_*.py; do .venv/Scripts/python.exe "$f" || echo "FAI
 
 既知flaky（§9）を除き新規failureがないこと。
 
-### Gate E — non-Test smoke（production経路の広域確認）
+### Gate E — non-Test smoke（production経路の統合確認）
 
-Layer B（Gate C）はfreeze済みの6 fixtureのみを対象とするため、より広いnon-Test画像集合
-（Issue #25/#26で使用したfreeze済みstemリスト、digital/drum各20枚程度）に対して、
-`smoke_inference_contract.py`の直接`model.predict()`呼び出しではなく、
-**実際のworker経路**（`predict_worker.py`をproject/inputs_dir経由で起動する、または
-API `/projects/{id}/predict` 経由）で推論を実行し、job.json完了・reading出力が
-正常であることを確認する。これはcontract doc内のstrict/tolerance比較ではなく、
-「実運用経路（subprocess起動・job.jsonポーリング・preprocess適用）が壊れていないか」の
-統合的な健全性確認である。
+> **Issue #32追記**: Gate Eは以下の恒久testで実行する（以前は手動/scratchpadでの
+> 都度実行だったものを恒久化した）。
+
+```bash
+.venv\Scripts\python.exe backend\tests\smoke_production_integration.py
+```
+
+`backend/tests/fixtures/production_smoke_v1.json`で定義したdigital/drum各2枚の
+non-Test fixtureに対し、`smoke_inference_contract.py`の直接`model.predict()`呼び出しでは
+なく、**実際のworker経路**（image: API `/api/projects/{name}/predict-jobs` →
+`prediction_service.start_job()` → `predict_worker.py`のsubprocess起動、video:
+`predict_video_worker.py`をmock cameraで直接起動）でjob完了・reading出力・
+`inference_contract`（contract version/model SHA256/resolved args/observability）が
+正常であることを確認する。これはcontract doc内のstrict/tolerance比較の代替ではなく、
+「実運用経路（subprocess起動・job.jsonポーリング・selected model resolution・
+preprocess適用・observability記録）が壊れていないか」の統合的な健全性確認である。
+production weight・fixture画像がローカルに無い環境ではSKIPする。
 
 ## 8. Contract failure時の分類
 
@@ -393,6 +402,8 @@ Issueコメント等に貼り付ける完了記録の雛形:
 - Issue #30: job.json書き込みraceとロック奪取raceを修正（flaky test解消）
 - Issue #31: Torch stack（torch/torchvision/torchaudio）のpin方針を確定
   （[`docs/TORCH_STACK_POLICY.md`](TORCH_STACK_POLICY.md)）
+- Issue #32: Gate E（non-Test smoke）を`backend/tests/smoke_production_integration.py`
+  として恒久化
 
 ## 19. 関連文書
 

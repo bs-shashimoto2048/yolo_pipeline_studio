@@ -197,7 +197,9 @@ Torch stack更新に失敗した場合:
 3. `python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"`
    で§8の期待値と一致することを確認
 4. `backend/tests/smoke_inference_contract.py`を実行し、Layer A/Bが全てPASSすることを確認
-5. backend smoke suite全体を実行し、新規regressionがないことを確認
+5. `backend/tests/smoke_production_integration.py`（Issue #32、Gate E相当）を実行し、
+   実worker経路でのdigital/drum image・video推論が正常であることを確認
+6. backend smoke suite全体を実行し、新規regressionがないことを確認
 
 ## 11. Known limitations
 

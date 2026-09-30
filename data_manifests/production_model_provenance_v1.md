@@ -160,6 +160,12 @@ Issue #25でrect=Trueを固定した後、残りのUltralytics暗黙default依�
 > （exact pinはREADMEの明示コマンド側で管理）。未使用と判明した`torchaudio`は
 > `requirements-train.txt`から削除した。
 
+> **Issue #32追記**: Issue #25〜#31で都度手動/scratchpad実行してきたnon-Test production
+> smoke（selected model resolution・real worker・inference contract・observability確認）を
+> `backend/tests/smoke_production_integration.py`として恒久化した（Gate E相当、詳細は
+> [`docs/PRODUCTION_INFERENCE_CONTRACT.md`](../docs/PRODUCTION_INFERENCE_CONTRACT.md)の
+> 「Layer C」節参照）。
+
 ### 時系列
 - Issue #24: YOLO26 auditで、model依存defaults（`end2end`等）の重要性が判明。
 - Issue #25: `rect=True`を現行production contractとして明示固定。
@@ -168,6 +174,7 @@ Issue #25でrect=Trueを固定した後、残りのUltralytics暗黙default依�
 - Issue #29: job.jsonへproduction inference contractのobservability metadataを追加。
 - Issue #30: job.json書き込みraceとロック奪取raceを修正（flaky test解消）。
 - Issue #31: Torch stack（torch/torchvision/torchaudio）のpin方針を確定、torchaudioを削除。
+- Issue #32: non-Test production smokeを`smoke_production_integration.py`として恒久化。
 
 ### Pinned（`backend/workers/predict_worker.py` / `predict_video_worker.py` へ明示、
 image predict・video inferenceとも同一、非Test画像digital20枚・drum20枚で個別・組合せとも

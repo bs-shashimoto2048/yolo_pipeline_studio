@@ -104,6 +104,19 @@ verbose: prediction結果に無関係（ログ詳細度のみ）のため対象�
 - weight SHA256をprovenance記載値と照合
 - 実際にproduction weightでpredictし、golden fixture値と比較
 
+### Layer C — production integration smoke（別ファイル、Issue #32）
+
+`backend/tests/smoke_inference_contract.py`のLayer A/Bは`model.predict()`を直接呼び出す
+「prediction contract自体」の回帰検知が目的であるのに対し、
+**`backend/tests/smoke_production_integration.py`**は別ファイルとして、
+「実運用経路（API → subprocess worker起動 → job.jsonポーリング → selected model
+resolution → observability記録）が壊れていないか」を確認する統合smokeを担う
+（fixture定義: `backend/tests/fixtures/production_smoke_v1.json`、expected値はLayer Bの
+golden fixtureを流用し二重管理を避ける）。model精度評価ではなく、あくまで
+「production wiring」の健全性確認。production weight・fixture画像がローカルに無い
+環境ではSKIPする。詳細は同test冒頭のdocstringおよび
+[`docs/ULTRALYTICS_UPGRADE_PROCEDURE.md`](ULTRALYTICS_UPGRADE_PROCEDURE.md)のGate E参照。
+
 ### Skip / Fail規則
 
 | 状態 | 結果 |

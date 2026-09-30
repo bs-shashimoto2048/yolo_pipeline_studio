@@ -1,0 +1,33 @@
+{
+  "version": "production-smoke-v1",
+  "note": "画像本体・expected_reading等は含めない。expected値はproduction_inference_contract_golden_v1.json（Issue #27）をstemで参照し、二重source of truthを避ける。stemはIssue #25/#26で既にfreeze・Test/Hard-Val非重複確認済みの一覧から選定（本Issue #32で再確認済み）。",
+  "digital": {
+    "project": "meter_src002",
+    "train_job_id": "production_combined_v2_5z",
+    "weight_type": "best",
+    "conf": 0.60,
+    "weight_sha256": "630d84287f983dac334815d04c6652f88de8164956c779d94f855645394d4b61",
+    "manifest": "data_manifests/meter_digital_combined_split_v2.csv",
+    "source_dir": "projects/yolo26_digital/datasets/matched_source_v1/images/train",
+    "stems": [
+      "src_002_20260903_142400",
+      "src_002_20260906_032000"
+    ]
+  },
+  "drum": {
+    "project": "meter_src004",
+    "train_job_id": "candidate_roi_v3_5",
+    "weight_type": "best",
+    "conf": 0.80,
+    "weight_sha256": "45c4d9054a30bd09a1a17d3eb53b87e0d26669b1387728ddc64fa8130f9e82db",
+    "manifest": "data_manifests/meter_src004_split_v3.csv",
+    "hard_val_manifest": "data_manifests/meter_src004_hard_val_v1.csv",
+    "source_dir": "projects/yolo26_dram_crop/datasets/matched_source_v1/images/train",
+    "stems": [
+      "src_004_20260906_002400",
+      "src_004_20260904_134800"
+    ]
+  },
+  "video_smoke_project": "drum",
+  "video_smoke_stem": "src_004_20260906_002400"
+}
