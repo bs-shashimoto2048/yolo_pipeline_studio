@@ -277,10 +277,28 @@ Layer C(`smoke_production_integration.py`)単体で**41.8秒**、backend全39フ
 数分程度。runner起動/setup自体の時間は、実runner未登録のため未計測（§29のrepeat
 stability確認と合わせて runner稼働開始後に記録する）。
 
+Gate 1（GitHub-hosted windows-latest、実測、§23の直近success run）: setup（job起動+
+checkout+Python setup）約13秒、依存install（requirements.txt+onnx系+
+requirements-train.txt CPU版）約1分34秒、backend全39ファイルsuite本体約2分8秒、
+job合計約4分。setup/依存installがtest本体よりも長く、依存installのcache活用
+（`actions/setup-python`の`cache: pip`は設定済み）が今後の高速化余地として残る。
+
 ## 23. Repeat stability
 
-実runner登録後、5〜10 runsで0 failureを確認すること（未実施、次のアクティベーション
-手順の一部とする）。
+Gate 1（GitHub-hosted windows-latest）は本Issueで実際にCI上へpushし、計10回実行した
+（`gh run list --workflow=backend-smoke.yml`で確認可能）。内訳:
+
+- 最初の4回は設計・実装上の real bug を発見・修正するための試行錯誤で失敗した
+  （§4/§13の依存棚卸し訂正、OS訂正、UTF-8訂正、詳細は各commit参照）。
+- 5回目でGreen化。直後に3並列でworkflow_dispatchしたところ2/3 successだったが、
+  残り1件で`smoke_capture.py`の`overwrite-protect`testが偶発的にFAILし、
+  `created_at`（秒精度のisoformat）が同一秒内での連続操作で衝突する既存の
+  flaky testを発見・修正した（`backend/app/services/capture_service.py`の
+  `created_at`をmicrosecond精度へ変更）。
+- 修正後、push 1回 + workflow_dispatch 2回、計3回連続でsuccess（100%）。
+
+Gate 2（self-hosted GPU runner）は実runner未登録のため repeat stability確認は
+未実施（runner稼働開始後に実施、§30参照）。
 
 ## 24. Secrets
 
