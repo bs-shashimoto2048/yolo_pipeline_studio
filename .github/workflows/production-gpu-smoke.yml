@@ -28,6 +28,9 @@ jobs:
       # （silent success防止。backend/tests/smoke_inference_contract.py /
       # smoke_production_integration.py の skip() 実装を参照）。
       YTS_PRODUCTION_SMOKE_REQUIRED: "1"
+      # Windowsコンソールのdefault codepageでは日本語print()がUnicodeEncodeErrorに
+      # なるため、Python 3.7+のUTF-8 modeを強制する（Gate 1のPoC実行で判明、同様に適用）。
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
 

@@ -23,6 +23,11 @@ permissions:
 jobs:
   backend-smoke:
     runs-on: windows-latest
+    env:
+      # Windows runnerのデフォルトコンソールcodepage(cp1252等)では、smoke testが出力する
+      # 日本語文字列のprint()がUnicodeEncodeErrorになるため、Python 3.7+のUTF-8 modeを
+      # 強制する（実PoC実行でsmoke_dataset_builder.py等が実際にこれで落ちたため訂正）。
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
 
