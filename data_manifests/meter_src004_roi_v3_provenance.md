@@ -263,6 +263,37 @@ production挙動と完全同値であることを実測確認できたものだ�
 > [`docs/LAST_DIGIT_CONFIDENCE_AUDIT.md`](../docs/LAST_DIGIT_CONFIDENCE_AUDIT.md)参照。
 > 本Issue自体はconf=0.80を変更していない。
 
+> **Issue #35追記（正式なconfidence再評価、結論: 0.80維持）**: Standard Val58
+> （`data_manifests/meter_src004_split_v3.csv`のsplit=="val"、58件。**Test41・
+> Frozen Hard-Val27は一切使用していない**）を正式なthreshold selection用
+> validationとして、conf 0.50〜0.85のsweepを実施した。
+>
+> Val58単独ではthresholdを下げるほどExact Match/7-detection rateが単調に改善し
+> （0.80: 82.8% → 0.60: 91.4% → 0.50: 94.8%）、2→8/8→2 confusionは全threshold域で
+> 0件、confidently-wrong（誤クラスがproduction閾値を超え正解が超えない）もVal58上は
+> 全threshold域で0件だった。0.50のみ新たなextra detection（8件検出、重複box）が
+> 1枚で発生したため候補から除外し、`0.60`・`0.70`の2案を最終candidateとした。
+>
+> しかし、Val58とは独立な非Test acceptanceデータ（Issue #34で取得済みのTrain339
+> フレーム）で同じcandidateを検証したところ、**confidently-wrong件数がむしろ
+> 増加する**ことが判明した（0.80: 6件 → 0.70: 7件（新規1件: `src_004_20260906_150800`,
+> GT=0だが誤クラスが0.733で通過） → 0.60: 9件（新規3件、うち2件は
+> `src_004_20260818_170600`(GT=8)・`src_004_20260904_023600`(GT=1)を追加））。
+> missing率はTrain339上でも改善する（18.3%→13.0%→11.2%）が、
+> 「confidently-wrongを増やさない」ことを最優先とする本Issueの判定基準（Gate A）に
+> 反するため、**Val58単独の結果は採用しない**と判断した。
+>
+> **最終決定: production confidenceは`0.80`を維持する（selected_model.json変更なし）。**
+> Val58（58件、小規模）はたまたまconfidently-wrongの事例を含んでいなかったため
+> 楽観的な結果になったが、より広範なTrain339データでは再現しなかった。この乖離自体が
+> 「thresholdだけでは解決できない」ことの根拠であり、次のアクションとしては
+> threshold変更ではなく**hard-negativeデータセット改善（"→7"/"→6"/"→8"混同への対応）**を
+> 優先する（Issue #34のRecommendation Dを参照、優先度をさらに引き上げる）。
+>
+> 詳細な評価スクリプト・per-image diff・Val58/Train339双方の数値は
+> `scripts/evaluate_drum_confidence.py`の実行結果として再現可能
+> （production weight・selected_model.jsonは本Issueを通じて一切変更していない）。
+
 ### drum固有の実測結果（Train所属画像20枚、v3 Train339からIssue #25 Checkpoint 2で既に
 freeze済みの一覧の先頭20件を再利用。結果を見てからの選定ではない）
 

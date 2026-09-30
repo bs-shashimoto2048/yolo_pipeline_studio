@@ -175,16 +175,18 @@ missing自体が極めて稀（0.57%）のため、そもそも温度感のあ�
 ### Drum
 複数のRecommendationを提案する（すべて別Issueでの実施を想定、本Issueでは実装しない）:
 
-- **Recommendation B（推奨・優先度高）**: production threshold（現在0.80）の正式な
-  再評価。0.80→0.70程度への引き下げでboundary missingが20.8%→14.8%まで改善する
-  可能性がある一方、false positive側への影響（confidently-wrongの増減、他クラスとの
-  誤検出増加）を非Testデータで正式に評価する必要がある。本Issueのsweep結果は
-  「引き下げの余地がある」ことを示す一次証拡であり、正式な閾値再選定はその影響
-  （特にconfidently-wrong率の変化）を独立して検証すべきため、別Issue化を推奨する。
-- **Recommendation D（推奨・優先度中）**: 末尾桁の"→7"・"→6"混同に対するhard-negative
-  データセット改善候補。6件中4件が"7"、2件が"6"という偏りは、transition中の特定形状が
-  これらのクラスと混同されやすいことを示唆する。該当stemを起点にhard-negative収集・
-  annotation改善を別Issueで検討する。
+- **Recommendation B（Issue #35で正式実施済み・結論: 不採用/0.80維持）**: production
+  threshold（0.80）の正式な再評価をIssue #35で実施した。Standard Val58（58件）単独
+  ではthreshold引き下げにより明確な改善が見えたが、独立な非Test acceptanceデータ
+  （本IssueのTrain339フレーム）で検証したところ、**confidently-wrong件数がむしろ
+  増加する**ことが判明し（0.80: 6件→0.70: 7件→0.60: 9件）、最優先基準（Gate A:
+  confidently-wrongを増やさない）に反するため、**0.80を維持**することとした。
+  詳細は[`data_manifests/meter_src004_roi_v3_provenance.md`](../data_manifests/meter_src004_roi_v3_provenance.md)
+  のIssue #35節を参照。
+- **Recommendation D（推奨・優先度高へ引き上げ）**: 末尾桁の"→7"・"→6"・"→8"混同に対する
+  hard-negativeデータセット改善候補。Issue #35でRecommendation Bが不採用となったため
+  （thresholdでは解決不能と判明）、現時点で最も有望な改善経路はこちらのみとなった。
+  該当stemを起点にhard-negative収集・annotation改善を別Issueで検討する。
 - **Recommendation C（不採用）**: 単純なtemporal hold/confirmationは§7のPoC結果により
   誤表示率を大幅に悪化させるため、この形での production化は推奨しない。より高度な
   手法（confidence-weighted fusion等）を将来検討する場合も、必ず本Issueと同じ

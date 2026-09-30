@@ -185,6 +185,8 @@ Issue #25でrect=Trueを固定した後、残りのUltralytics暗黙default依�
 - Issue #33: job.json書き込み/lockの残存raceを他job種別（train/selection/onnx_export/
   capture）へも棚卸し・修正。
 - Issue #34: 末尾桁confidence不安定性を非Testデータで定量診断（production非変更）。
+- Issue #35: drum production confidenceをStandard Val58で正式再評価。非Test
+  acceptanceでconfidently-wrong増加が判明したため0.80維持（production非変更）。
 
 ### Pinned（`backend/workers/predict_worker.py` / `predict_video_worker.py` へ明示、
 image predict・video inferenceとも同一、非Test画像digital20枚・drum20枚で個別・組合せとも
