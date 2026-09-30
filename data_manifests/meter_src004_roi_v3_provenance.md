@@ -255,6 +255,14 @@ production挙動と完全同値であることを実測確認できたものだ�
 > 詳細は[`docs/PRODUCTION_INFERENCE_CONTRACT.md`](../docs/PRODUCTION_INFERENCE_CONTRACT.md)の
 > 「Runtime observability」節を参照（digital/drum共通のため詳細はそちらに一本化）。
 
+> **Issue #34追記**: drum赤サブ桁のconfidence不安定性を非Testデータで定量診断した
+> （production非変更）。stable frameでは100%正しく検出される一方、boundary frame
+> （transitionの近似proxy）ではmissing率20.8%・6件で"→7"/"→6"への再現性ある混同を
+> 確認。threshold sweep・temporal stabilization PoC（naive hold/confirmationは
+> 誤表示率を悪化させるため不採用と判断）を含め、詳細は
+> [`docs/LAST_DIGIT_CONFIDENCE_AUDIT.md`](../docs/LAST_DIGIT_CONFIDENCE_AUDIT.md)参照。
+> 本Issue自体はconf=0.80を変更していない。
+
 ### drum固有の実測結果（Train所属画像20枚、v3 Train339からIssue #25 Checkpoint 2で既に
 freeze済みの一覧の先頭20件を再利用。結果を見てからの選定ではない）
 

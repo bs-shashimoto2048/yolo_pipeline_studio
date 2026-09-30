@@ -166,6 +166,13 @@ Issue #25でrect=Trueを固定した後、残りのUltralytics暗黙default依�
 > [`docs/PRODUCTION_INFERENCE_CONTRACT.md`](../docs/PRODUCTION_INFERENCE_CONTRACT.md)の
 > 「Layer C」節参照）。
 
+> **Issue #34追記**: digital右端桁・drum赤サブ桁のconfidence不安定性を非Testデータで
+> 定量診断した（`scripts/analyze_last_digit_stability.py`、production非変更）。
+> digitalは実害0.57%でCase A（物理transition）が支配的、drumはCase A主体+
+> Case C（閾値変更で一部回収可能）+ Case B（"→7"/"→6"混同の再現性）の混合。
+> 詳細・threshold sweep・temporal PoC結果は
+> [`docs/LAST_DIGIT_CONFIDENCE_AUDIT.md`](../docs/LAST_DIGIT_CONFIDENCE_AUDIT.md)参照。
+
 ### 時系列
 - Issue #24: YOLO26 auditで、model依存defaults（`end2end`等）の重要性が判明。
 - Issue #25: `rect=True`を現行production contractとして明示固定。
@@ -175,6 +182,9 @@ Issue #25でrect=Trueを固定した後、残りのUltralytics暗黙default依�
 - Issue #30: job.json書き込みraceとロック奪取raceを修正（flaky test解消）。
 - Issue #31: Torch stack（torch/torchvision/torchaudio）のpin方針を確定、torchaudioを削除。
 - Issue #32: non-Test production smokeを`smoke_production_integration.py`として恒久化。
+- Issue #33: job.json書き込み/lockの残存raceを他job種別（train/selection/onnx_export/
+  capture）へも棚卸し・修正。
+- Issue #34: 末尾桁confidence不安定性を非Testデータで定量診断（production非変更）。
 
 ### Pinned（`backend/workers/predict_worker.py` / `predict_video_worker.py` へ明示、
 image predict・video inferenceとも同一、非Test画像digital20枚・drum20枚で個別・組合せとも
