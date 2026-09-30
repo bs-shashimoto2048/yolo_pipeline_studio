@@ -24,15 +24,21 @@ jobs:
           python-version: "3.10"
           cache: "pip"
 
-      - name: Install lightweight backend dependencies
+      - name: Install backend dependencies (CPU-only, no GPU/production artifact)
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           # backend/app/routers/model_export.py が backend/app/services/model_export_service.py
           # 経由で onnxruntime をモジュールレベルで import しているため、
-          # `from app.main import app` の時点で必要（app boot自体に必要、GPU/torch/ultralytics
-          # は不要 - Issue #38 の依存棚卸しで確認済み）。
+          # `from app.main import app` の時点で必要（app boot自体に必要）。
           pip install onnx onnxruntime onnxslim
+          # requirements-train.txt (CPU版、GPU/CUDA不要、real production weightも不要)。
+          # 一部smoke test（例: smoke_video_inference.py の非dry-runパス、smoke_sam.py の
+          # mock candidate生成）が、production weightの有無に関わらずcv2/ultralyticsの
+          # import自体は必要とする設計のため、Gate 1のPoC実行で判明し追加した
+          # （docs/CI_GPU_RUNNER.md §4参照。GPU/CUDAは一切使わず、real weightもGit管理外の
+          # ためcheckoutに含まれず、Layer B/Layer Cの実推論部分は既存SKIP設計で回避される）。
+          pip install -r requirements-train.txt
 
       - name: Run backend smoke suite (production artifacts absent -> auto-skip)
         working-directory: backend

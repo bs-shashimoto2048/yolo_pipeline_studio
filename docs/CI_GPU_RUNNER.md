@@ -28,11 +28,20 @@
 - **対象**: import/syntax、Layer A（contract定数のソースレベル検査）、
   observability schema、production artifact非依存のunit/smokeロジック全般。
 - **実行環境**: GitHub-hosted `ubuntu-latest`（GPUなし、self-hosted不要）。
-- **依存**: `requirements.txt`（軽量） + `onnx onnxruntime onnxslim`
-  （下記§4の依存棚卸しの通り、`backend/app/routers/model_export.py`が
-  `model_export_service.py`経由で`onnxruntime`をモジュールレベルでimportしており、
-  `app.main`のFastAPI appオブジェクト構築自体にonnxruntimeが必要なため。torch/ultralytics/
-  cv2はapp起動には不要であることをgrep監査で確認済み）。
+- **依存**: `requirements.txt`（軽量） + `onnx onnxruntime onnxslim` + `requirements-train.txt`
+  （CPU版、GPU/CUDA不要）。当初は`onnxruntime`系のみで足りると想定していたが、実際に
+  GitHub-hosted runner上でPoC実行したところ、以下2点が判明し追加した（§4参照）:
+  1. `requirements.txt`に`httpx`が未記載だった（`fastapi.testclient.TestClient`が内部で
+     要求し、多くのsmoke testがTestClientを使うため、事実上必須）。
+  2. `smoke_video_inference.py`（非dry-runの接続失敗パス）や`smoke_sam.py`（mock candidate
+     生成）など、production weightの有無に関わらずcv2/ultralyticsのimport自体を必要とする
+     テストが存在した（`predict_video_worker.py`が「dry-runでなければまずultralyticsを
+     importしてfail-fastする」設計のため）。CPU版torch/ultralyticsはGPU/CUDA不要で
+     GitHub-hosted runnerでも問題なくinstall・importでき、real production weightも
+     Git管理外のためcheckoutに含まれない（Layer B/Layer Cの実推論部分は既存SKIP設計で
+     引き続き回避される）。app boot自体にtorch/ultralytics/cv2が不要であるという当初の
+     grep監査結果自体は正しかったが、smoke test群の一部が「artifact非依存だが
+     import依存」であることは静的解析だけでは見抜けず、実際のCI実行で初めて判明した。
 - **production weight/fixture**: 存在しない（`projects/`はgitignore対象のため、CI
   checkoutには含まれない）。既存のSKIP設計により、Layer B/Layer Cの該当部分は
   自動的にSKIPされ、それ以外はPASSする。
