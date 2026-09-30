@@ -21,6 +21,8 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
+import inference_contract
+
 # 標準出力/標準エラーを UTF-8 に固定（WindowsのCP932による文字化け防止）
 for _stream in (sys.stdout, sys.stderr):
     try:
@@ -161,6 +163,18 @@ def main() -> int:
     # 4) 推論実行
     try:
         model = YOLO(str(weight))
+
+        # observability metadata（Issue #29）: 実際に使用するweight file・resolved argsを
+        # job.jsonへ記録する。model load直後（predict実行前）に書き込むことで、この後
+        # 推論自体が失敗しても「何を使おうとしたか」の記録が失われないようにする。
+        # runtime_deviceのみこの時点では未確定（後段でpredict結果取得後に確定させる）。
+        contract = inference_contract.build_contract(
+            job_json, weight,
+            conf=args.conf, iou=args.iou, imgsz=args.imgsz,
+            requested_device=args.device,
+        )
+        _update_job(job_json, inference_contract=contract)
+
         kwargs = dict(
             source=str(inputs_dir),
             conf=args.conf,
@@ -193,6 +207,16 @@ def main() -> int:
         results = []
         detection_count = 0
         for idx, r in enumerate(preds, 1):
+            if idx == 1:
+                # 実際に使用されたdeviceは、Ultralytics内部解決後の1件目の結果からのみ
+                # 確実に取得できる（推測で埋めない。取得できなければNoneのまま）。
+                try:
+                    runtime_device = str(model.predictor.device)
+                except Exception:  # noqa: BLE001
+                    runtime_device = None
+                contract["resolved_args"]["runtime_device"] = runtime_device
+                _update_job(job_json, inference_contract=contract)
+
             src_path = Path(r.path)
             image_name = src_path.name
             save_dir = Path(r.save_dir)

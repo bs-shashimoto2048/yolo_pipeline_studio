@@ -147,11 +147,18 @@ Issue #25でrect=Trueを固定した後、残りのUltralytics暗黙default依�
 > に標準化した。`ultralytics`は本Issueで`requirements-train.txt`/`backend/requirements-sam.txt`上
 > `==8.4.83`へexact pinした（判断根拠は同docの「実施したrequirements変更」節）。
 
+> **Issue #29追記**: 実際に実行されたjobがどのcontract version・model・resolved argsで
+> 推論したかは、job.jsonの`inference_contract`（predict/video両workerがmodel load直後に記録）
+> から事後監査できる。詳細・schema・privacy方針は
+> [`docs/PRODUCTION_INFERENCE_CONTRACT.md`](../docs/PRODUCTION_INFERENCE_CONTRACT.md)の
+> 「Runtime observability」節を参照（推論挙動自体は変更していない）。
+
 ### 時系列
 - Issue #24: YOLO26 auditで、model依存defaults（`end2end`等）の重要性が判明。
 - Issue #25: `rect=True`を現行production contractとして明示固定。
 - Issue #26（本節）: 残りのdefaultsを監査し、同値確認できたもののみ追加固定。
 - Issue #28: Ultralytics依存の更新procedureを標準化し、`ultralytics==8.4.83`をexact pin。
+- Issue #29: job.jsonへproduction inference contractのobservability metadataを追加。
 
 ### Pinned（`backend/workers/predict_worker.py` / `predict_video_worker.py` へ明示、
 image predict・video inferenceとも同一、非Test画像digital20枚・drum20枚で個別・組合せとも

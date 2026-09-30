@@ -250,6 +250,11 @@ production挙動と完全同値であることを実測確認できたものだ�
 > [`docs/ULTRALYTICS_UPGRADE_PROCEDURE.md`](../docs/ULTRALYTICS_UPGRADE_PROCEDURE.md)を参照
 > （digital/drum共通のため詳細は同docおよび`production_model_provenance_v1.md`側に一本化）。
 
+> **Issue #29追記**: drum production job（`candidate_roi_v3_5:best`, conf=0.80）のjob.jsonにも
+> `inference_contract`（contract version・weight SHA256・resolved args）が記録される。
+> 詳細は[`docs/PRODUCTION_INFERENCE_CONTRACT.md`](../docs/PRODUCTION_INFERENCE_CONTRACT.md)の
+> 「Runtime observability」節を参照（digital/drum共通のため詳細はそちらに一本化）。
+
 ### drum固有の実測結果（Train所属画像20枚、v3 Train339からIssue #25 Checkpoint 2で既に
 freeze済みの一覧の先頭20件を再利用。結果を見てからの選定ではない）
 

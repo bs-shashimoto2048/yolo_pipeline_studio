@@ -21,6 +21,8 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import inference_contract
+
 for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
@@ -357,6 +359,26 @@ def main() -> int:
 
     try:
         model = YOLO(args.weight)
+
+        # observability metadata（Issue #29）: model load直後（推論開始前）に記録する。
+        # 映像ジョブはlive settings refreshでconf/iou/imgsz/deviceが動的に変わり得るため、
+        # 起動時点のimmutableな snapshot（initial_resolved_args）と、最新値へ追従する
+        # current_resolved_args を分けて保持する。runtime_deviceのみ、実際に最初の推論が
+        # 成功するまで確定できないためNoneのまま開始する（推測しない）。
+        _base_contract = inference_contract.build_contract(
+            job_json, Path(args.weight),
+            conf=args.conf, iou=args.iou, imgsz=args.imgsz,
+            requested_device=args.device,
+        )
+        _initial_args = _base_contract.pop("resolved_args")
+        contract = {
+            **_base_contract,
+            "initial_resolved_args": _initial_args,
+            "current_resolved_args": dict(_initial_args),
+        }
+        _update_job(job_json, inference_contract=contract)
+        runtime_device_known = False
+
         predict_kwargs = dict(
             conf=args.conf, iou=args.iou, imgsz=args.imgsz, verbose=False,
             # 以下はIssue #25/#26でproduction inference contractとして明示固定した値。
@@ -411,6 +433,19 @@ def main() -> int:
                 )
                 if args.device and args.device != "auto":
                     predict_kwargs["device"] = args.device
+
+                # observability metadata（Issue #29）: current_resolved_argsを最新のargsへ
+                # 同期する。実際に値が変わった時だけjob.jsonへ書く（このブロック自体
+                # settings_check_interval=1秒に1回しか実行されないため、変化なしの場合の
+                # 追加書き込みも避けて簡素化する）。
+                _new_current = inference_contract.build_resolved_args(
+                    conf=args.conf, iou=args.iou, imgsz=args.imgsz,
+                    requested_device=args.device,
+                    runtime_device=contract["current_resolved_args"].get("runtime_device"),
+                )
+                if _new_current != contract["current_resolved_args"]:
+                    contract["current_resolved_args"] = _new_current
+                    _update_job(job_json, inference_contract=contract)
 
             ok, frame = cap.read()
             if not ok or frame is None:
@@ -472,6 +507,18 @@ def main() -> int:
                 try:
                     results = model.predict(frame, **predict_kwargs)
                     last_annotated = results[0].plot(conf=False)  # BGR ndarray（ラベルは値のみ、信頼度は非表示）
+                    if not runtime_device_known:
+                        # 実際に使用されたdeviceは、最初の推論成功後にのみ確実に取得できる
+                        # （推測しない。取得できなければNoneのまま）。job.jsonへの書き込みは
+                        # ジョブ全体で1回のみ（毎frame書き込むとFPSへ影響するため）。
+                        try:
+                            rd = str(model.predictor.device)
+                        except Exception:  # noqa: BLE001
+                            rd = None
+                        contract["initial_resolved_args"]["runtime_device"] = rd
+                        contract["current_resolved_args"]["runtime_device"] = rd
+                        _update_job(job_json, inference_contract=contract)
+                        runtime_device_known = True
                 except Exception as e:  # noqa: BLE001
                     print(f"[WARN] 推論に失敗（フレームスキップ）: {e!r}")
 

@@ -602,6 +602,8 @@ export interface PredictJobInfo {
   resolved_preprocess_profile?: Record<string, unknown> | null;
   // 実際に適用された前処理ステップの列（例: ["roi_crop","resize","grayscale","sharpen"]）
   processing_order?: string[] | null;
+  // production inference contract observability（Issue #29）。旧jobにはキー自体が無い。
+  inference_contract?: Record<string, unknown> | null;
 }
 
 export interface PredictJobListResponse {
@@ -708,6 +710,8 @@ export interface VideoJobInfo {
   resolved_preprocess_profile?: Record<string, unknown> | null;
   // 実際に適用された前処理ステップの列（例: ["roi_crop","resize","grayscale","sharpen"]）
   processing_order?: string[] | null;
+  // production inference contract observability（Issue #29）。旧jobにはキー自体が無い。
+  inference_contract?: Record<string, unknown> | null;
   status: string;
   message: string | null;
   created_at: string | null;

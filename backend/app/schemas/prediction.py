@@ -74,6 +74,9 @@ class PredictJobInfo(BaseModel):
     resolved_preprocess_profile: dict[str, Any] | None = None
     # 実際に適用された前処理ステップの列（例: ["roi_crop","resize","grayscale","sharpen"]）
     processing_order: list[str] | None = None
+    # production inference contract observability（Issue #29）。model load後にworkerが記録する。
+    # 旧job.jsonにはキー自体が無いため、未設定時はNone（legacy job）として扱う。
+    inference_contract: dict[str, Any] | None = None
 
 
 class PredictJobListResponse(BaseModel):

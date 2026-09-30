@@ -170,6 +170,108 @@ golden値のみを保存し、画像バイト列・生産設備の機密情報�
 
 ---
 
+## Runtime observability（Issue #29）
+
+推論挙動そのものは変更せず、**実際に実行されたjobについて、何で推論したかを事後監査できる
+ようにする**目的でjob.jsonへ追加したmetadata。predict/video両workerが、model load直後
+（predict実行前）に`inference_contract`オブジェクトを1回書き込む。
+
+### job metadata構造
+
+画像predict job（`predictions/<id>/job.json`）:
+
+```json
+"inference_contract": {
+  "contract_version": "production-inference-contract-v1",
+  "ultralytics_version": "8.4.83",
+  "torch_version": "2.11.0+cu128",
+  "model": {
+    "train_job_id": "production_combined_v2_5z",
+    "weight_type": "best",
+    "model_path": "runs/train/production_combined_v2_5z/weights/best.pt",
+    "sha256": "630d84287f983dac334815d04c6652f88de8164956c779d94f855645394d4b61"
+  },
+  "resolved_args": {
+    "rect": true, "max_det": 300, "agnostic_nms": false, "augment": false,
+    "batch": 1, "quantize": null,
+    "conf": 0.60, "iou": 0.7, "imgsz": 640,
+    "requested_device": "auto", "runtime_device": "cuda:0"
+  }
+}
+```
+
+映像job（`video/<id>/job.json`）は、live settings refresh（conf/iou/imgsz/deviceが実行中に
+変更可能）に対応するため、`resolved_args`を起動時点のimmutableな`initial_resolved_args`と、
+最新値へ追従する`current_resolved_args`に分けて持つ（他のキーは画像jobと同じ）。
+
+### Immutable / Dynamic fields
+
+| 種別 | フィールド | 備考 |
+|---|---|---|
+| immutable（job全体で不変） | `contract_version` / `ultralytics_version` / `torch_version` / `model.*` | job開始後は変えない |
+| dynamic（画像jobでは不変、映像jobでは変わり得る） | `resolved_args`（画像）/ `current_resolved_args`（映像）の`conf`/`iou`/`imgsz`/`requested_device` | 映像jobのみlive settings refreshで変化 |
+| runtime確定値 | `runtime_device` | 最初の推論成功後にのみ確定。取得できない場合は推測せずNoneのまま |
+
+pinned args（`rect`/`max_det`/`agnostic_nms`/`augment`/`batch`/`quantize`）は
+`initial_resolved_args`・`current_resolved_args`のいずれでも常に同一値（live refreshでも
+変わらない）。値の定義元は`backend/workers/inference_contract.py`の`PINNED_ARGS`。
+
+### 既存監査で判明した事実（現状棚卸し）
+
+| Field | Image job | Video job | 追加前の状態 | Source |
+|---|---|---|---|---|
+| model_path（project-relative） | 未記録 | 未記録 | train_job_id+weight_typeから導出可能だが明示フィールドなし | 新規: `inference_contract.model.model_path` |
+| train_job_id / weight_type | 記録済み | 記録済み | 既存フィールドのまま | `prediction_service`/`video_service`（既存） |
+| weight SHA256 | 未記録 | 未記録 | – | 新規: `inference_contract.model.sha256` |
+| conf（起動時点の値） | 記録済み（image jobにlive refresh機構は無い） | **起動後にlive settings refreshで上書きされ、起動時点の値は失われていた** | video jobの`conf`top-levelフィールドは常に「現在値」のみで「起動時点の値」を保持していなかった | 新規: `initial_resolved_args.conf`が起動時点値を初めて保持する |
+| iou / imgsz | 記録済み（top-level） | 記録済み（top-levelだが`VideoJobInfo`スキーマがAPI応答へ公開していなかった） | – | 新規: `resolved_args`経由でAPI応答にも露出 |
+| runtime device（実際に使用されたdevice） | 未記録 | 未記録 | – | 新規: `*resolved_args.runtime_device` |
+| rect/max_det/agnostic_nms/augment/batch/quantize | workerのkwargsには明示されているがjob.json非記録 | 同左 | – | 新規: `*resolved_args` |
+| Ultralytics/torch version | 未記録 | 未記録 | – | 新規: `ultralytics_version`/`torch_version` |
+| preprocess_mode/resolution_source/resolved_preprocess_profile/processing_order | 記録済み | 記録済み | 既にIssue #19で導入済み | 既存のまま（`inference_contract`には含めない。重複回避） |
+
+映像jobの`conf`/`device`等top-levelフィールドが live settings refresh で**上書きされ、
+起動時点の値が失われる**挙動は本Issueで新たに変えたものではなく、既存仕様（Issue #3/#19）の
+まま。`initial_resolved_args`はこれを変更せず、単に起動時点のsnapshotを別途保持するだけである。
+
+### SHA256の意味
+
+`inference_contract.model.sha256`は、`selected_model.json`に記載された値をそのまま転記した
+ものではなく、**そのjobで実際にworkerがloadしたweight fileから都度算出した値**（job開始時に
+1回のみ計算、frame/画像ごとの再計算はしない）。値が食い違う場合は
+`selected_model.json`の記載と実体ファイルが乖離していることを意味する。
+
+### Legacy jobの扱い
+
+旧job.json（`inference_contract`キー自体が無い）は、Pydantic schema側で
+`inference_contract: dict[str, Any] | None = None`としているため、欠落時は自動的に`None`
+（legacy job）として扱われる。過去jobの書き換え・migrationは行わない。
+
+### Privacy / Security
+
+`inference_contract`にはcredentials・カメラの認証情報・URLクエリ秘密情報等を一切含めない
+（そもそも構築に使う入力がweight path・train_job_id/weight_type・conf/iou/imgsz/device・
+Ultralytics/torch versionのみで、これらの情報を扱わない）。`model_path`は
+project-relativeな形式（例: `runs/train/<train_job_id>/weights/<weight_type>.pt`）のみとし、
+個人ユーザー名を含む絶対ローカルパスは保存しない。
+
+### Test
+
+`backend/tests/smoke_inference_observability.py`（Issue #29）:
+- `inference_contract.py`の純粋関数（SHA256計算・model identity解決・resolved args構築）の単体テスト
+- PINNED_ARGSモジュール値とworker kwargsリテラルの一致検証（乖離防止）
+- job status（running/completed/failed/stopped）更新後もinference_contractが消えないことの確認
+- DRY_RUN経路がinference_contractを捏造しないことの確認
+- 旧job.json（キー無し）・新job.json（キーあり）双方のPydantic schema互換性確認
+
+実Ultralytics・実production weightでの動作確認（temp project copyでの実predict job実行・
+mock cameraでのvideo worker実行、live settings refresh後のcurrent_resolved_args追従を含む）は
+Issue #29のnon-Test production smokeとして実施済み（scratchpad、恒久テストとしては未コミット。
+production weightファイル自体をunit test必須条件にはしない方針は`smoke_inference_contract.py`
+と同じ）。
+
+---
+
 ## 関連文書
 
 - [`data_manifests/production_model_provenance_v1.md`](../data_manifests/production_model_provenance_v1.md) — モデル採用履歴・#24〜#26の判断根拠
