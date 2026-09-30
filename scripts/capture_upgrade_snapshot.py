@@ -85,6 +85,24 @@ def cuda_info() -> dict[str, str]:
         return {"cuda_version": "unknown", "cuda_available": "unknown", "gpu": f"IMPORT_ERROR: {exc}"}
 
 
+def nvidia_driver_version() -> str:
+    """NVIDIA driverのバージョンをnvidia-smi経由で取得する（Issue #31）。
+
+    torch.version.cudaはwheelにbundleされたCUDA runtimeであり、driver自体の
+    バージョンとは別概念（docs/TORCH_STACK_POLICY.md参照）。取得できない環境
+    （nvidia-smi未導入・GPU無し等）ではread-onlyのまま安全にfallbackする。
+    """
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=10,
+        )
+        driver = out.stdout.strip().splitlines()[0] if out.returncode == 0 and out.stdout.strip() else "unknown"
+        return driver
+    except Exception:  # noqa: BLE001
+        return "unknown (nvidia-smi not available)"
+
+
 def python_version() -> str:
     import platform  # noqa: PLC0415
 
@@ -133,6 +151,7 @@ def main() -> None:
     print("\n## CUDA / GPU\n")
     for k, v in cuda_info().items():
         print(f"- {k}: `{v}`")
+    print(f"- nvidia_driver_version: `{nvidia_driver_version()}`")
     print(f"- python: `{python_version()}`")
 
     print("\n## Production artifacts\n")

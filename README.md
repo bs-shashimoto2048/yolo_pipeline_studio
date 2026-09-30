@@ -140,20 +140,27 @@ npm run dev
 ### GPU（NVIDIA + CUDA）で学習する場合
 
 CPU 版が入らないよう、**先に** PyTorch 公式インデックスから CUDA 版 torch を導入してから
-`ultralytics` を入れます（例: CUDA 12.x → `cu128`。環境に応じて `cu126` 等へ）。
+`requirements-train.txt` を導入します（検証済みバージョン。環境に応じて `cu126` 等へ。
+pin方針の詳細は [`docs/TORCH_STACK_POLICY.md`](docs/TORCH_STACK_POLICY.md) 参照）。
 
 ```powershell
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
-pip install -U ultralytics
+pip install torch==2.11.0+cu128 torchvision==0.26.0+cu128 --index-url https://download.pytorch.org/whl/cu128
+pip install -r requirements-train.txt
 ```
+
+（`torchaudio` は本プロジェクトで未使用のため導入不要です。`pip install -U ultralytics` の
+ような無条件更新コマンドは使わず、`requirements-train.txt` 経由で検証済みバージョンを
+導入してください。）
 
 導入確認:
 
 ```powershell
-.\.venv\Scripts\python.exe -c "import torch; print('cuda:', torch.cuda.is_available())"
+.\.venv\Scripts\python.exe -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
 ```
+
+期待値: `2.11.0+cu128 12.8 True`
 
 > ドライバが CUDA 12.2 対応でも cu128/cu126 が動作する場合があります（CUDA 12 系はマイナー互換）。
 

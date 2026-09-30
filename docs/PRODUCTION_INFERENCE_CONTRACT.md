@@ -279,3 +279,5 @@ production weightファイル自体をunit test必須条件にはしない方針
 - [`docs/YOLO26_PT_ONNX_AUDIT.md`](YOLO26_PT_ONNX_AUDIT.md) — rect条件発見の経緯（Issue #24事後監査）
 - [`docs/ULTRALYTICS_UPGRADE_PROCEDURE.md`](ULTRALYTICS_UPGRADE_PROCEDURE.md) — Ultralytics依存更新時の
   pre-upgrade snapshot・gate（A〜E）・failure classification・採否/rollback基準（Issue #28）
+- [`docs/TORCH_STACK_POLICY.md`](TORCH_STACK_POLICY.md) — torch/torchvision/torchaudioの
+  検証済みバージョン・pin方針・CUDA wheel入手経路（Issue #31）

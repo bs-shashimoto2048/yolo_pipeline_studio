@@ -153,12 +153,21 @@ Issue #25でrect=Trueを固定した後、残りのUltralytics暗黙default依�
 > [`docs/PRODUCTION_INFERENCE_CONTRACT.md`](../docs/PRODUCTION_INFERENCE_CONTRACT.md)の
 > 「Runtime observability」節を参照（推論挙動自体は変更していない）。
 
+> **Issue #31追記**: torch/torchvision/torchaudioのpin方針・検証済みバージョン
+> （`torch==2.11.0+cu128` / `torchvision==0.26.0+cu128`）・インストール手順は
+> [`docs/TORCH_STACK_POLICY.md`](../docs/TORCH_STACK_POLICY.md)に集約した。
+> `requirements-train.txt`自体はCPU-only環境の可搬性維持のためunpinnedのまま
+> （exact pinはREADMEの明示コマンド側で管理）。未使用と判明した`torchaudio`は
+> `requirements-train.txt`から削除した。
+
 ### 時系列
 - Issue #24: YOLO26 auditで、model依存defaults（`end2end`等）の重要性が判明。
 - Issue #25: `rect=True`を現行production contractとして明示固定。
 - Issue #26（本節）: 残りのdefaultsを監査し、同値確認できたもののみ追加固定。
 - Issue #28: Ultralytics依存の更新procedureを標準化し、`ultralytics==8.4.83`をexact pin。
 - Issue #29: job.jsonへproduction inference contractのobservability metadataを追加。
+- Issue #30: job.json書き込みraceとロック奪取raceを修正（flaky test解消）。
+- Issue #31: Torch stack（torch/torchvision/torchaudio）のpin方針を確定、torchaudioを削除。
 
 ### Pinned（`backend/workers/predict_worker.py` / `predict_video_worker.py` へ明示、
 image predict・video inferenceとも同一、非Test画像digital20枚・drum20枚で個別・組合せとも

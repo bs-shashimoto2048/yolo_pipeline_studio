@@ -8,15 +8,21 @@
 #
 # GPU(CUDA)版 torch を使う場合は、先に PyTorch 公式インデックスから torch 系を
 # 入れてから本ファイルを導入すること（Windows + NVIDIA、例）:
-#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
-#   （環境に応じて cu126 等へ。詳細は README「Windows + NVIDIA GPU（CUDA）で導入する場合」）
+#   pip install torch==2.11.0+cu128 torchvision==0.26.0+cu128 --index-url https://download.pytorch.org/whl/cu128
+#   （検証済みバージョン・pin方針の詳細は docs/TORCH_STACK_POLICY.md、
+#   手順全体は README「GPU（NVIDIA + CUDA）で学習する場合」を参照）
 # 何も指定しなければ CPU 版が入る。
+# torch/torchvision はCUDA版wheelが通常PyPIに存在しないため、本ファイルではあえて
+# unpinnedのまま維持している（exact pinするとCPU-only環境でのinstallが失敗するため。
+# 詳細は docs/TORCH_STACK_POLICY.md 参照）。
 
 ultralytics==8.4.83  # production-inference-contract-v1 (docs/PRODUCTION_INFERENCE_CONTRACT.md) の検証済み依存として固定。
                      # 更新手順は docs/ULTRALYTICS_UPGRADE_PROCEDURE.md を参照。
 torch
 torchvision
-torchaudio
+# torchaudio は本プロジェクトのコードベースで一切使用されておらず、ultralyticsの
+# 依存にも含まれない（Issue #31で確認）。「torch triplet」導入の慣例のみで含まれて
+# いたため削除した。
 
 # ONNXエクスポート（Issue 027）用。Ultralytics の export が自動導入する場合もあるが、
 # 環境により失敗することがあるため明示しておく。

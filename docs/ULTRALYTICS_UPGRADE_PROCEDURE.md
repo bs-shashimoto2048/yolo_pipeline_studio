@@ -13,6 +13,12 @@ Ultralytics（および密結合する torch/torchvision/torchaudio/onnx/onnxrun
 Ultralytics依存の更新によって、production inferenceのreading / detection /
 tensor shape / resolved argsが**意図せず**変わることを防止する。
 
+> **Issue #31追記**: 本手順（pre-upgrade snapshot・Gate A〜E・failure classification・
+> 採否/rollback基準）は、Ultralytics自体の更新に限らず、**torch/torchvision/torchaudioの
+> バージョンやCUDA wheel（`cuXXX`）を変更する場合にも同様に適用する**。Torch stackの
+> 検証済み構成・pin方針・インストール手順は
+> [`docs/TORCH_STACK_POLICY.md`](TORCH_STACK_POLICY.md)を参照。
+
 判断の原則:
 
 ```text
@@ -194,12 +200,13 @@ testを通すことは禁止する。
 
 ### 既知flakyと新規regressionの区別
 
-`smoke_prediction_selected_model_fallback.py` は、DRY_RUN workerのjob.json読み書き
-競合による `json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)`
-（`wait_completed()`内、job.json読込時）が既知のpre-existing flakyとして記録済み
-（Issue #25/#26/#27で複数回確認）。
+> **Issue #30追記**: 以前ここに記載していた`smoke_prediction_selected_model_fallback.py`の
+> job.json読み書き競合、および`smoke_video_inference.py`の`test_settings_lock_no_lost_update`
+> のlock steal raceは、いずれもIssue #30で根本原因を修正済み（job.jsonのatomic書き込み化・
+> ロック奪取判定のfile age基準化）。現時点で本プロジェクトに既知flakyとして扱うtestは無い。
+> 以下の判定手順は、将来新たなflakyが見つかった場合の一般的な運用ルールとして残す。
 
-upgrade gate実行時にこのテストが失敗した場合の判定手順:
+upgrade gate実行時にテストが断続的に失敗した場合の判定手順:
 
 1. 単体で3回連続再実行する。
 2. 3回とも同じ `JSONDecodeError`（同じ発生箇所）であれば、既知flakyとして記録し、
@@ -316,6 +323,15 @@ torch/torchvision/torchaudio/onnx/onnxruntime/onnxslim/opencv-python/numpy/Pillo
 インストール手順全体の見直しが必要になるため、**別Issueとして提案する**
 （§16「次Issue候補」参照）。
 
+> **Issue #31追記**: torch/torchvision/torchaudioの方針は
+> [`docs/TORCH_STACK_POLICY.md`](TORCH_STACK_POLICY.md)で確定した。
+> `requirements-train.txt`の`torch`/`torchvision`はCPU-only環境の可搬性を保つため
+> 引き続きunpinnedのまま維持し、production再現に必要な正確なバージョン・indexは
+> README「GPU（NVIDIA + CUDA）で学習する場合」節の明示コマンドで管理する
+> （Plan B。requirements自体へのexact pinはCUDA版wheelが通常PyPIに存在しないため
+> 不採用）。`torchaudio`はコードベース内で一切使用されていないことを確認の上、
+> `requirements-train.txt`から削除した。
+
 ## 15. Provenance
 
 本ドキュメントは `docs/PRODUCTION_INFERENCE_CONTRACT.md` からリンクされる
@@ -373,6 +389,10 @@ Issueコメント等に貼り付ける完了記録の雛形:
 - Issue #27: `production-inference-contract-v1` regression test導入
   （`smoke_inference_contract.py` + golden fixture + `docs/PRODUCTION_INFERENCE_CONTRACT.md`）
 - Issue #28（本ドキュメント）: dependency upgrade procedureの標準化
+- Issue #29: job.jsonへproduction inference contractのobservability metadataを追加
+- Issue #30: job.json書き込みraceとロック奪取raceを修正（flaky test解消）
+- Issue #31: Torch stack（torch/torchvision/torchaudio）のpin方針を確定
+  （[`docs/TORCH_STACK_POLICY.md`](TORCH_STACK_POLICY.md)）
 
 ## 19. 関連文書
 
