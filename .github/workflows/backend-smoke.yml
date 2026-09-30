@@ -1,0 +1,43 @@
+name: Backend smoke (CPU, Gate 1)
+
+# Issue #38: production weight/GPUを一切必要としないCPU CI gate。
+# GitHub-hosted runnerのみを使用するため、fork PRからのpull_requestでも安全。
+# production artifact（weight/fixture画像）はgitignore対象のためcheckoutに含まれず、
+# Layer B/Cの該当部分は既存のSKIP設計により自動的にSKIPされる。
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: "pip"
+
+      - name: Install lightweight backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # backend/app/routers/model_export.py が backend/app/services/model_export_service.py
+          # 経由で onnxruntime をモジュールレベルで import しているため、
+          # `from app.main import app` の時点で必要（app boot自体に必要、GPU/torch/ultralytics
+          # は不要 - Issue #38 の依存棚卸しで確認済み）。
+          pip install onnx onnxruntime onnxslim
+
+      - name: Run backend smoke suite (production artifacts absent -> auto-skip)
+        working-directory: backend
+        run: |
+          for f in tests/smoke_*.py; do
+            echo "=== $f ==="
+            python "$f"
+          done

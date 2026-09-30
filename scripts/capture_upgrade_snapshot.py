@@ -26,9 +26,24 @@ _SELECTED_MODEL_PATHS = {
     "digital": _REPO_ROOT / "projects" / "meter_src002" / "models" / "selected_model.json",
     "drum": _REPO_ROOT / "projects" / "meter_src004" / "models" / "selected_model.json",
 }
-_WEIGHT_PATHS = {
-    "digital": _REPO_ROOT / "projects/meter_src002/runs/train/production_combined_v2_5z/weights/best.pt",
-    "drum": _REPO_ROOT / "projects/meter_src004/runs/train/candidate_roi_v3_5/weights/best.pt",
+
+
+def _resolve_weight_path(project_dir: Path, selected_model_path: Path) -> Path | None:
+    """selected_model.jsonのmodel_pathから動的に解決する（Issue #38: production model
+    promotion（train_job_id変更）のたびに本scriptを手動更新しなくて済むようにするため、
+    特定train_job_idのハードコードを廃止した）。"""
+    if not selected_model_path.exists():
+        return None
+    sel = json.loads(selected_model_path.read_text(encoding="utf-8"))
+    model_path = sel.get("model_path")
+    if not model_path:
+        return None
+    return project_dir / model_path
+
+
+_PROJECT_DIRS = {
+    "digital": _REPO_ROOT / "projects" / "meter_src002",
+    "drum": _REPO_ROOT / "projects" / "meter_src004",
 }
 
 
@@ -121,12 +136,17 @@ def contract_info() -> dict[str, object]:
 
 def production_artifacts() -> dict[str, dict[str, object]]:
     out: dict[str, dict[str, object]] = {}
-    for label, weight_path in _WEIGHT_PATHS.items():
-        selected_model_path = _SELECTED_MODEL_PATHS[label]
+    for label, selected_model_path in _SELECTED_MODEL_PATHS.items():
+        weight_path = _resolve_weight_path(_PROJECT_DIRS[label], selected_model_path)
         entry: dict[str, object] = {}
-        entry["weight_path"] = str(weight_path.relative_to(_REPO_ROOT))
-        entry["weight_exists"] = weight_path.exists()
-        entry["weight_sha256"] = sha256_file(weight_path) if weight_path.exists() else "(not found)"
+        if weight_path is None:
+            entry["weight_path"] = "(selected_model.json not found)"
+            entry["weight_exists"] = False
+            entry["weight_sha256"] = "(not found)"
+        else:
+            entry["weight_path"] = str(weight_path.relative_to(_REPO_ROOT))
+            entry["weight_exists"] = weight_path.exists()
+            entry["weight_sha256"] = sha256_file(weight_path) if weight_path.exists() else "(not found)"
         if selected_model_path.exists():
             entry["selected_model"] = json.loads(selected_model_path.read_text(encoding="utf-8"))
         else:

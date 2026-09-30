@@ -185,6 +185,9 @@ cd frontend
 npm run build
 ```
 
+CIでの実行方式（CPU/GPU gate分離・self-hosted GPU runner設計）は
+[`docs/CI_GPU_RUNNER.md`](docs/CI_GPU_RUNNER.md) を参照してください。
+
 ---
 
 ## データと安全性に関する注意

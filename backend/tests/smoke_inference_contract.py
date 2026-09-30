@@ -48,7 +48,13 @@ def check(label: str, cond: bool) -> None:
 
 
 def skip(label: str) -> None:
-    global _SKIP
+    global _SKIP, _FAIL
+    # Issue #38: CI/GPU runner上ではproduction artifact欠落をSKIPで握り潰さず、
+    # 明示的にFAILさせる（silent successを防ぐ）。通常のlocal実行では従来通りSKIP。
+    if os.environ.get("YTS_PRODUCTION_SMOKE_REQUIRED") == "1":
+        print("FAIL(required) " + label)
+        _FAIL += 1
+        raise SystemExit(1)
     print("SKIP " + label)
     _SKIP += 1
 

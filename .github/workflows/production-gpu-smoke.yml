@@ -1,0 +1,53 @@
+name: Production GPU smoke (Gate 2)
+
+# Issue #38: Layer B/Layer C(production integration smoke)を、self-hosted GPU runner上で
+# 安全に実行するための設計。詳細は docs/CI_GPU_RUNNER.md を参照。
+#
+# 現時点(本Issue完了時点)では self-hosted runner は未登録のため、本workflowは
+# workflow_dispatch で手動起動してもキューされたまま実行されない
+# （docs/CI_GPU_RUNNER.md §30「アクティベーション手順」参照）。
+#
+# 重要（セキュリティ）: 本リポジトリは public repo である。self-hosted runner を
+# 使うため、pull_request / pull_request_target は絶対にtrigger条件へ含めない
+# （fork PRコードがproduction runner上で自動実行されることを防ぐ）。
+# 現時点では workflow_dispatch のみを許可する。
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  production-gpu-smoke:
+    # self-hosted runner未登録の場合、このjobはキューされたまま実行されない
+    # （docs/CI_GPU_RUNNER.md §30参照）。
+    runs-on: [self-hosted, windows, x64, gpu, yolo-production]
+    env:
+      # production artifact(weight/fixture)欠落をSKIPではなくFAILさせる
+      # （silent success防止。backend/tests/smoke_inference_contract.py /
+      # smoke_production_integration.py の skip() 実装を参照）。
+      YTS_PRODUCTION_SMOKE_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Environment snapshot
+        run: python scripts\capture_upgrade_snapshot.py
+
+      - name: Layer A/B contract regression
+        run: python backend\tests\smoke_inference_contract.py
+
+      - name: Observability regression
+        run: python backend\tests\smoke_inference_observability.py
+
+      - name: Layer C production integration smoke
+        run: python backend\tests\smoke_production_integration.py
+
+      - name: Full backend smoke suite
+        working-directory: backend
+        shell: bash
+        run: |
+          for f in tests/smoke_*.py; do
+            echo "=== $f ==="
+            python "$f"
+          done
