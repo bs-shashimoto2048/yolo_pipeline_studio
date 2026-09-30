@@ -33,7 +33,7 @@ from ..schemas.training import (
     TrainLogLine,
     TrainLogResponse,
 )
-from . import augmentation_service, log_utils, project_service
+from . import augmentation_service, log_utils, project_service, video_service
 from .augmentation_service import AugmentationValidationError
 from .project_service import ProjectError, project_exists
 
@@ -178,6 +178,15 @@ def _job_json_path(name: str, job_id: str) -> Path:
     return paths.train_job_dir(name, job_id) / "job.json"
 
 
+def _job_lock_path(name: str, job_id: str) -> Path:
+    """job.jsonのread-modify-write（起動直後のPID記録・ワーカー自身の状態更新）を
+    直列化するための簡易ロック。video_service._job_lock_pathと同じ考え方（同名の
+    ロックファイル規約・同じ排他生成方式）。train_worker.py側もpredict_video_worker.py
+    の_update_job（同じロック実装）を再利用しているため、両者は同じロックで排他される。
+    """
+    return Path(str(_job_json_path(name, job_id)) + ".lock")
+
+
 def _prepare_data_train_yaml(ds_dir: Path) -> Path:
     """学習用の data_train.yaml を生成する（既存 data.yaml は破壊しない）。
 
@@ -232,7 +241,9 @@ def _read_job(name: str, job_id: str) -> dict | None:
         return None
     try:
         return json.loads(p.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, OSError):
+        # workerのjob.json書き込み（atomicなos.replace）と稀にタイミングが重なると、
+        # Windowsでは読込側が一時的にPermissionErrorになり得る（Issue #30/#33で実測確認）。
         return None
 
 
@@ -379,9 +390,7 @@ def start_job(name: str, req: TrainJobCreate) -> TrainJobStartResponse:
         "augmentation_preset": aug_preset,
         "augmentation_params": aug_params,
     }
-    _job_json_path(name, job_id).write_text(
-        json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    video_service._write_job_json(_job_json_path(name, job_id), job)
 
     # --- worker をサブプロセスで起動（ノンブロッキング）---
     cmd = [
@@ -418,10 +427,19 @@ def start_job(name: str, req: TrainJobCreate) -> TrainJobStartResponse:
         log_f.close()
 
     # 起動直後にPIDを記録しておく（実行中判定の保険。capture/video系と同じ考え方）。
-    job["pid"] = proc.pid
-    _job_json_path(name, job_id).write_text(
-        json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    # ワーカーは起動後すぐ status=running 等で job.json を更新し得るため、メモリ上の
+    # 古い job dict でそのまま上書きすると更新が消える。ロックを取って現在の内容を
+    # 読み直してから pid だけ加える（train_worker.py側もpredict_video_worker.pyの
+    # _update_job（同じロック実装）を再利用しているため、同じロックファイルで排他される。
+    # Issue #33で他job種別（capture/video/selection）と同じ方式へ揃えた）。
+    lock_path = _job_lock_path(name, job_id)
+    video_service._acquire_file_lock(lock_path)
+    try:
+        current = _read_job(name, job_id) or job
+        current["pid"] = proc.pid
+        video_service._write_job_json(_job_json_path(name, job_id), current)
+    finally:
+        video_service._release_file_lock(lock_path)
 
     return TrainJobStartResponse(
         project_name=name,

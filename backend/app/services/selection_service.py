@@ -222,7 +222,7 @@ def start_run_job(name: str, req: SelectionRunRequest) -> SelectionRunResponse:
     video_service._acquire_file_lock(lock_path)
     try:
         job_path.parent.mkdir(parents=True, exist_ok=True)
-        job_path.write_text(json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8")
+        video_service._write_job_json(job_path, job)
     finally:
         video_service._release_file_lock(lock_path)
 
@@ -257,7 +257,7 @@ def start_run_job(name: str, req: SelectionRunRequest) -> SelectionRunResponse:
     try:
         current = _read_job(name) or job
         current["pid"] = proc.pid
-        job_path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
+        video_service._write_job_json(job_path, current)
     finally:
         video_service._release_file_lock(lock_path)
 

@@ -55,12 +55,30 @@ def setup_dataset() -> None:
     })
 
 
+def read_job_json(path: Path, attempts: int = 10, delay: float = 0.05) -> dict:
+    """job.jsonを読む（workerのatomic書き込み中と稀にタイミングが重なる一時的な
+    PermissionError/OSErrorを、短い有界リトライで吸収する。Issue #30/#33）。"""
+    for attempt in range(attempts):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay)
+    return {}
+
+
 def wait_completed(job_id: str) -> str:
     job_json = ROOT / PROJ / "runs" / "train" / job_id / "job.json"
     final = "?"
     for _ in range(30):
         time.sleep(0.2)
-        final = json.loads(job_json.read_text(encoding="utf-8"))["status"]
+        try:
+            final = json.loads(job_json.read_text(encoding="utf-8"))["status"]
+        except (OSError, json.JSONDecodeError, KeyError):
+            # workerのatomic書き込み（os.replace）と読込側のopenが稀に重なると
+            # Windowsでは一時的にPermissionErrorになり得る（Issue #30/#33）。
+            continue
         if final in {"completed", "failed"}:
             break
     return final
@@ -79,7 +97,7 @@ def main() -> None:
 
     # job.json に task=segment が保存される
     job_json = ROOT / PROJ / "runs" / "train" / "train_seg_001" / "job.json"
-    saved = json.loads(job_json.read_text(encoding="utf-8"))
+    saved = read_job_json(job_json)
     check("job.json task segment", saved["task"] == "segment")
     check("job.json model seg", saved["model"] == "yolov8n-seg.pt")
 

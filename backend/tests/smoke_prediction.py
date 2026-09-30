@@ -62,12 +62,33 @@ def make_fake_train_job(job_id: str, with_best: bool = True, with_last: bool = F
         (d / "weights" / "last.pt").write_bytes(b"fake-weight")
 
 
+def read_job_json(path: Path, attempts: int = 10, delay: float = 0.05) -> dict:
+    """job.jsonを読む（workerのatomic書き込み中と稀にタイミングが重なる一時的な
+    PermissionError/OSErrorを、短い有界リトライで吸収する。Issue #30/#33）。"""
+    for attempt in range(attempts):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay)
+    return {}
+
+
 def wait_completed(predict_job_id: str) -> str:
     job_json = ROOT / PROJ / "predictions" / predict_job_id / "job.json"
     final = "?"
     for _ in range(30):
         time.sleep(0.2)
-        final = json.loads(job_json.read_text(encoding="utf-8"))["status"]
+        try:
+            final = json.loads(job_json.read_text(encoding="utf-8"))["status"]
+        except (OSError, json.JSONDecodeError, KeyError):
+            # workerはjob.jsonをatomicに書き込む（一時ファイル+os.replace）が、
+            # os.replace()自体が読込側のopenと重なるとWindowsでは一時的に
+            # PermissionErrorになり得る（Issue #30で実測確認）。恒久的な欠損では
+            # ないため、既存のポーリングループ内でそのまま次の試行へ進む
+            # （新規sleepは追加しない）。
+            continue
         if final in {"completed", "failed"}:
             break
     return final
@@ -122,7 +143,7 @@ def main() -> None:
 
     job_json = ROOT / PROJ / "predictions" / "predict_001" / "job.json"
     check("job.json exists", job_json.exists())
-    saved = json.loads(job_json.read_text(encoding="utf-8"))
+    saved = read_job_json(job_json)
     check("job.json image_count 2", saved["image_count"] == 2)
 
     # --- 同名 overwrite=false → 409 ---

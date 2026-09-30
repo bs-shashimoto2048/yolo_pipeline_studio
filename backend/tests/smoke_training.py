@@ -58,6 +58,19 @@ def write_label(stem: str, content: str) -> None:
     p.write_text(content, encoding="utf-8")
 
 
+def read_job_json(path: Path, attempts: int = 10, delay: float = 0.05) -> dict:
+    """job.jsonを読む（workerのatomic書き込み中と稀にタイミングが重なる一時的な
+    PermissionError/OSErrorを、短い有界リトライで吸収する。Issue #30/#33）。"""
+    for attempt in range(attempts):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay)
+    return {}
+
+
 def _wait_for_status(job_json: Path, terminal: set[str], timeout: float = 5.0) -> str:
     """job.json の status が指定の終端状態集合に達するまで待つ（dry-runは高速に終わる）。"""
     deadline = time.time() + timeout
@@ -282,7 +295,7 @@ def main() -> None:
 
     job_json = ROOT / PROJ / "runs" / "train" / "train_001" / "job.json"
     check("job.json exists", job_json.exists())
-    saved = json.loads(job_json.read_text(encoding="utf-8"))
+    saved = read_job_json(job_json)
     check("job.json fields", saved["job_id"] == "train_001" and saved["epochs"] == 1)
     check(
         "job.json status valid",

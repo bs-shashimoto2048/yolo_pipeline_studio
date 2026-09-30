@@ -38,6 +38,9 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:  # noqa: BLE001
         pass
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from predict_video_worker import _update_job  # noqa: E402
+
 _ALLOWED_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp"}
 # job.json への書き込み頻度（1枚ごとだと数千枚規模でI/Oが過大になるため間引く）
 _PROGRESS_EVERY_N = 25
@@ -48,13 +51,10 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-def _update_job(job_json: Path, **fields: object) -> None:
-    try:
-        data = json.loads(job_json.read_text(encoding="utf-8-sig"))
-    except (FileNotFoundError, json.JSONDecodeError):
-        data = {}
-    data.update(fields)
-    job_json.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+## _update_job は predict_video_worker.py から再利用する（Issue #33）。
+## job.jsonのatomic書き込み・排他ロックはjob種別に依存しない汎用ロジックであり、
+## selection_service.py が既に同一のlock file規約（<job.json>.lock）でPID書き込みを
+## 保護しているため、workerも同じロックへ参加させる必要がある（重複実装を避ける）。
 
 
 def _hist_stats(hist: list[int]) -> tuple[float, float]:

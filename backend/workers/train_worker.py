@@ -27,6 +27,9 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:  # noqa: BLE001
         pass
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from predict_video_worker import _update_job  # noqa: E402
+
 
 def _summarize_error(text: str) -> str:
     """例外/ログ文字列から分かりやすいエラー要約を作る。"""
@@ -48,17 +51,9 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-def _update_job(job_json: Path, **fields: object) -> None:
-    """job.json を読み込み、指定フィールドを更新して書き戻す。"""
-    try:
-        # utf-8-sig: 万一BOM付きで書かれていてもjob_id等を失わないように
-        data = json.loads(job_json.read_text(encoding="utf-8-sig"))
-    except (FileNotFoundError, json.JSONDecodeError):
-        data = {}
-    data.update(fields)
-    job_json.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+## _update_job は predict_video_worker.py から再利用する（Issue #33）。
+## job.jsonのatomic書き込み・排他ロックはjob種別に依存しない汎用ロジックであり、
+## Issue #30で実測検証済みの実装を重複させないため（capture_worker.pyと同じ方針）。
 
 
 def _rel_posix(path: Path, base: Path) -> str | None:
@@ -106,7 +101,7 @@ def main() -> int:
     try:
         _job = json.loads(job_json.read_text(encoding="utf-8-sig"))
         aug_params = _job.get("augmentation_params") or {}
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError):
         aug_params = {}
 
     # 2) running へ更新

@@ -57,7 +57,7 @@ def _atomic_replace(tmp: Path, dst: Path, attempts: int = 20) -> None:
 def _update_job(job_json: Path, **fields: object) -> None:
     try:
         data = json.loads(job_json.read_text(encoding="utf-8-sig"))
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError):
         data = {}
     data.update(fields)
     # 非atomicな書き込み（真上書き）だと、書き込み中（truncate直後〜再書き込み完了前）に
@@ -95,7 +95,7 @@ def _write_results(
     job = {}
     try:
         job = json.loads(job_json.read_text(encoding="utf-8-sig"))
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError):
         pass
     payload = {
         "predict_job_id": job.get("predict_job_id"),

@@ -50,9 +50,15 @@ def make_train_weight(job_id: str) -> None:
 
 def wait(predict_id: str) -> str:
     jj = paths.predict_job_dir(PROJ, predict_id) / "job.json"
+    st = "?"
     for _ in range(30):
         time.sleep(0.2)
-        st = json.loads(jj.read_text(encoding="utf-8"))["status"]
+        try:
+            st = json.loads(jj.read_text(encoding="utf-8"))["status"]
+        except (OSError, json.JSONDecodeError, KeyError):
+            # workerのatomic書き込み（os.replace）と読込側のopenが稀に重なると
+            # Windowsでは一時的にPermissionErrorになり得る（Issue #30/#33）。
+            continue
         if st in ("completed", "failed"):
             return st
     return "?"

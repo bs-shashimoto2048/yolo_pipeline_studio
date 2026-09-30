@@ -305,7 +305,16 @@ def main() -> int:
     interval_seconds = args.interval_minutes * 60.0 if args.interval_minutes and args.interval_minutes > 0 else 0.0
     next_auto_capture = _next_aligned_epoch(interval_seconds, time.time()) if interval_seconds > 0 else None
     _update_job(job_json, next_auto_capture_at=_iso_at(next_auto_capture))
-    captured_count = int((json.loads(job_json.read_text(encoding="utf-8-sig")) or {}).get("captured_count") or 0)
+    try:
+        _current = json.loads(job_json.read_text(encoding="utf-8-sig")) or {}
+    except (OSError, json.JSONDecodeError):
+        # API側（capture_service.stop_session等）のatomic書き込みと稀にタイミングが
+        # 重なる一時的なPermissionErrorをここで落とすと撮影プロセスが停止してしまう
+        # （Issue #33）。captured_countは0からの再カウントに倒しても実害は小さい
+        # （実際のカウントはjob.json側に既に保存されている値を後続の_update_jobが
+        # 読み直して使うため、ここでの取りこぼしは表示上の一時的なズレに留まる）。
+        _current = {}
+    captured_count = int(_current.get("captured_count") or 0)
     # 自動撮影スロットが「どれだけ遅れていたら追いかけずにスキップするか」の許容誤差。
     # 通常運転時は毎フレーム（video_interval間隔）でスロット到来をチェックしているため
     # 遅延は高々数百ms〜数秒だが、通信断からの再接続直後は next_auto_capture が既に

@@ -103,7 +103,11 @@ def _read_job(name: str, sid: str) -> dict | None:
         return None
     try:
         return json.loads(p.read_text(encoding="utf-8-sig"))
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, OSError):
+        # workerのjob.json書き込み（atomicなos.replace）と稀にタイミングが重なると、
+        # Windowsでは読込側が一時的にPermissionErrorになり得る（Issue #30/#33で実測確認）。
+        # JSONDecodeError同様、"今は読めない"として扱う（呼び出し元は次のポーリングで
+        # 再取得できる。恒久的な欠損ではない）。
         return None
 
 
@@ -241,9 +245,7 @@ def start_session(name: str, req: CaptureSessionCreate) -> CaptureSessionInfo:
         "last_captured_filename": None,
         "next_auto_capture_at": next_auto_capture_at,
     }
-    _job_json_path(name, sid).write_text(
-        json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    video_service._write_job_json(_job_json_path(name, sid), job)
     log_path = sdir / "capture.log"
     log_path.touch()
 
@@ -279,9 +281,7 @@ def start_session(name: str, req: CaptureSessionCreate) -> CaptureSessionInfo:
     try:
         current = _read_job(name, sid) or job
         current["pid"] = proc.pid
-        _job_json_path(name, sid).write_text(
-            json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        video_service._write_job_json(_job_json_path(name, sid), current)
     finally:
         video_service._release_file_lock(lock_path)
 
@@ -353,9 +353,7 @@ def stop_session(name: str, sid: str) -> CaptureSessionInfo:
             job["status"] = "stopped"
             job["finished_at"] = datetime.now().isoformat(timespec="seconds")
             job["message"] = "stopped by user"
-            _job_json_path(name, sid).write_text(
-                json.dumps(job, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
+            video_service._write_job_json(_job_json_path(name, sid), job)
     finally:
         video_service._release_file_lock(lock_path)
     return get_session(name, sid)

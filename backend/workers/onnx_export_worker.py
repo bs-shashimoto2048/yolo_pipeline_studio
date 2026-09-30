@@ -23,6 +23,9 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:  # noqa: BLE001
         pass
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from predict_video_worker import _update_job  # noqa: E402
+
 
 def _summarize_error(text: str) -> str:
     low = text.lower()
@@ -43,13 +46,8 @@ def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-def _update_job(job_json: Path, **fields: object) -> None:
-    try:
-        data = json.loads(job_json.read_text(encoding="utf-8-sig"))
-    except (FileNotFoundError, json.JSONDecodeError):
-        data = {}
-    data.update(fields)
-    job_json.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+## _update_job は predict_video_worker.py から再利用する（Issue #33）。
+## job.jsonのatomic書き込みはjob種別に依存しない汎用ロジックであり、重複実装を避ける。
 
 
 def _rel_posix(path: Path, base: Path) -> str:
@@ -116,7 +114,7 @@ def main() -> int:
 
     try:
         job = json.loads(job_json.read_text(encoding="utf-8-sig"))
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError):
         job = {}
 
     if not weight.exists():

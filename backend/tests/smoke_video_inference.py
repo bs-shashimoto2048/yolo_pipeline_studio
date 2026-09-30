@@ -77,7 +77,9 @@ def read_job(vid: str) -> dict:
         return {}
     try:
         return json.loads(p.read_text(encoding="utf-8-sig"))
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, OSError):
+        # workerのjob.json書き込み（atomicなos.replace）と稀にタイミングが重なると、
+        # Windowsでは読込側が一時的にPermissionErrorになり得る（Issue #30/#33で実測確認）。
         return {}
 
 

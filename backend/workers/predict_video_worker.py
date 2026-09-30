@@ -101,7 +101,7 @@ def _update_job(job_json: Path, **fields: object) -> None:
     try:
         try:
             data = json.loads(job_json.read_text(encoding="utf-8-sig"))
-        except (FileNotFoundError, json.JSONDecodeError):
+        except (OSError, json.JSONDecodeError):
             data = {}
         data.update(fields)
         # 非atomicな書き込み（真上書き）だと、書き込み中に他プロセス/スレッドが読むと
@@ -142,7 +142,11 @@ def _stopped(stop_flag: Path, job_json: Path) -> bool:
     try:
         st = json.loads(job_json.read_text(encoding="utf-8-sig")).get("status")
         return st in ("stopped", "failed", "completed")
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError):
+        # メインループから毎frame呼ばれるため、update_settings()側のatomic書き込み
+        # （os.replace）と稀にタイミングが重なる一時的なPermissionErrorをここで
+        # 落とすと推論プロセス全体が停止してしまう。ここは「今は読めなかった」
+        # として扱い、次のループでの再判定に委ねる（Issue #33）。
         return False
 
 
@@ -211,7 +215,10 @@ def _refresh_live_settings(job_json: Path, args: argparse.Namespace) -> bool:
     """
     try:
         data = json.loads(job_json.read_text(encoding="utf-8-sig"))
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError):
+        # update_settings()側のatomic書き込みと稀にタイミングが重なる一時的な
+        # PermissionErrorをここで落とすと推論プロセスが停止してしまう。今回の
+        # 反映は諦め、次のsettings_check_interval（1秒後）で再試行される（Issue #33）。
         return False
     fps_changed = False
     vf, inf = data.get("video_fps"), data.get("infer_fps")

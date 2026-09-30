@@ -56,7 +56,7 @@ def wait_completed(export_job_id: str) -> str:
         time.sleep(0.2)
         try:
             final = json.loads(job_json.read_text(encoding="utf-8"))["status"]
-        except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        except (OSError, json.JSONDecodeError, KeyError):
             continue
         if final in {"completed", "failed"}:
             break
@@ -173,7 +173,7 @@ def __wait_seg() -> bool:
         try:
             if json.loads(job_json.read_text(encoding="utf-8"))["status"] == "completed":
                 return True
-        except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        except (OSError, json.JSONDecodeError, KeyError):
             continue
     return False
 

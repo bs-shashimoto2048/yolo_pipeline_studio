@@ -54,7 +54,7 @@ def wait_onnx(proj: str, jid: str) -> str:
         time.sleep(0.2)
         try:
             st = json.loads(p.read_text(encoding="utf-8"))["status"]
-        except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        except (OSError, json.JSONDecodeError, KeyError):
             continue
         if st in ("completed", "failed"):
             return st
