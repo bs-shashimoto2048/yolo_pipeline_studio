@@ -237,7 +237,11 @@ def start_session(name: str, req: CaptureSessionCreate) -> CaptureSessionInfo:
         "interval_minutes": interval_minutes,
         "status": "queued",
         "message": f"queued（{resolve_note}）" if resolve_note else "queued",
-        "created_at": now.isoformat(timespec="seconds"),
+        # timespec="microseconds"（Issue #38で"seconds"から変更）: 同一秒内でstop直後に
+        # overwrite=Trueで再作成した場合でも新規sessionのcreated_atが一意になるようにする
+        # （実CI実行で、高速なrunner上ではsecond精度だと衝突しsmoke_capture.pyの
+        # overwrite-protect testがflakyになることが判明したため）。
+        "created_at": now.isoformat(timespec="microseconds"),
         "started_at": None,
         "finished_at": None,
         "captured_count": 0,
