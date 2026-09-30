@@ -27,7 +27,10 @@
 
 - **対象**: import/syntax、Layer A（contract定数のソースレベル検査）、
   observability schema、production artifact非依存のunit/smokeロジック全般。
-- **実行環境**: GitHub-hosted `ubuntu-latest`（GPUなし、self-hosted不要）。
+- **実行環境**: GitHub-hosted `windows-latest`（GPUなし、self-hosted不要）。当初
+  `ubuntu-latest`で試したが、`training_service.py`/`video_service.py`がWindows専用の
+  `tasklist`コマンド（subprocess生存確認用）に依存しており実PoC実行でFAILしたため、
+  production parity（§13/§14と同じ理由）を優先しWindowsへ訂正した。
 - **依存**: `requirements.txt`（軽量） + `onnx onnxruntime onnxslim` + `requirements-train.txt`
   （CPU版、GPU/CUDA不要）。当初は`onnxruntime`系のみで足りると想定していたが、実際に
   GitHub-hosted runner上でPoC実行したところ、以下2点が判明し追加した（§4参照）:
