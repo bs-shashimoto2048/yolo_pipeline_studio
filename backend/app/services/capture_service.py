@@ -195,6 +195,10 @@ def start_session(name: str, req: CaptureSessionCreate) -> CaptureSessionInfo:
     _require_project(name)
     if not paths.is_valid_project_name(req.session_name):
         raise CaptureValidationError("session_name は英数・アンダースコア・ハイフンのみです。")
+    if len(req.session_name) > 64:
+        # Issue #43で発見: 極端に長いsession_nameはWindowsのパス長上限(MAX_PATH)に
+        # 抵触し、ディレクトリ作成時に500 Internal Server Errorとなっていた。
+        raise CaptureValidationError("session_name は64文字以内にしてください。")
     if not (1 <= req.video_fps <= 60):
         raise CaptureValidationError("video_fps は 1〜60 です。")
     if req.source_type not in ("camera", "url"):

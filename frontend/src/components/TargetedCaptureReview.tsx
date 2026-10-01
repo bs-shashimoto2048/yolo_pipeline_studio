@@ -201,11 +201,18 @@ export default function TargetedCaptureReview({ name }: { name: string }) {
   async function loadProgress() {
     if (!manifestPath) return;
     setProgressError("");
+    // 新規session作成フォームのdigit_position/target_classが未入力の場合は、
+    // 現在レビュー中のsessionのtargetにfallbackする（Issue #43で発見: フォームを
+    // 開かずにレビューだけ行うと、集計対象が指定されず常に0件に見えてしまうため）。
+    const selectedTarget = sessions.find((s) => s.session_id === selectedSid)?.target;
+    const effectiveDigitPosition =
+      newDigitPosition !== "" ? Number(newDigitPosition) : selectedTarget?.digit_position ?? null;
+    const effectiveTargetClass = newTargetClass || selectedTarget?.target_class || null;
     try {
       const r = await api.getTargetedCaptureProgress(
         name, manifestPath,
-        newDigitPosition === "" ? null : Number(newDigitPosition),
-        newTargetClass || null,
+        effectiveDigitPosition,
+        effectiveTargetClass,
         gtPosition === "" ? null : Number(gtPosition)
       );
       setProgress(r);
@@ -304,6 +311,7 @@ export default function TargetedCaptureReview({ name }: { name: string }) {
         </form>
       )}
 
+      <div className="tcr-session-table-scroll">
       <table className="tcr-session-table">
         <thead>
           <tr>
@@ -318,9 +326,9 @@ export default function TargetedCaptureReview({ name }: { name: string }) {
               className={"tcr-session-row" + (selectedSid === s.session_id ? " active" : "")}
               onClick={() => selectSession(s.session_id)}
             >
-              <td>{s.session_id}</td>
-              <td className="muted">{s.purpose ?? "—"}</td>
-              <td className="muted">
+              <td className="tcr-cell-truncate" title={s.session_id}>{s.session_id}</td>
+              <td className="muted tcr-cell-truncate" title={s.purpose ?? undefined}>{s.purpose ?? "—"}</td>
+              <td className="muted tcr-cell-truncate" title={s.target ? `pos=${s.target.digit_position ?? "?"} class=${s.target.target_class ?? "?"}` : undefined}>
                 {s.target ? `pos=${s.target.digit_position ?? "?"} class=${s.target.target_class ?? "?"}` : "—"}
               </td>
               <td>{s.captured_count}</td>
@@ -339,6 +347,7 @@ export default function TargetedCaptureReview({ name }: { name: string }) {
           )}
         </tbody>
       </table>
+      </div>
 
       {selectedSid && (
         <div className="card tcr-review-panel">
@@ -460,7 +469,8 @@ export default function TargetedCaptureReview({ name }: { name: string }) {
                 <div className="row">
                   <button type="button" onClick={loadProgress} disabled={!manifestPath}>進捗を取得</button>
                   <span className="muted">
-                    フォーム上部の digit_position / target_class と manifest_path を使用します。
+                    digit_position / target_classは「新規 targeted session」欄の入力値を優先し、
+                    未入力の場合は選択中セッションのtargetを使用します。
                   </span>
                 </div>
                 {progressError && <div className="error">{progressError}</div>}

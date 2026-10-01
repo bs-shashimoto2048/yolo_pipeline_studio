@@ -3229,8 +3229,14 @@ pre {
   margin: 8px 0;
 }
 
+.tcr-session-table-scroll {
+  overflow-x: auto;
+}
+
 .tcr-session-table {
   width: 100%;
+  min-width: 640px;
+  table-layout: fixed;
   border-collapse: collapse;
   margin-top: 8px;
   font-size: 0.85rem;
@@ -3241,6 +3247,14 @@ pre {
   text-align: left;
   padding: 4px 8px;
   border-bottom: 1px solid var(--border, #333);
+}
+
+/* 長いsession_id/purpose/targetで列が崩れないよう省略表示する（Issue #43） */
+.tcr-cell-truncate {
+  max-width: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tcr-session-row {
