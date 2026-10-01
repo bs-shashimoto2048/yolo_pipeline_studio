@@ -75,6 +75,8 @@ import type {
   VideoJobSettingsUpdateRequest,
   VideoSourceListResponse,
   ProjectSummary,
+  ServerInfo,
+  TrainingQueueStatus,
   TrainJobCreateRequest,
   TrainJobInfo,
   TrainJobListResponse,
@@ -82,6 +84,7 @@ import type {
   TrainLogResponse,
   UploadResponse,
 } from "../types";
+import { identityHeaders } from "./identity";
 
 const BASE = "/api";
 
@@ -116,10 +119,18 @@ export const api = {
     return handle(
       await fetch(`${BASE}/projects`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...identityHeaders() },
         body: JSON.stringify({ name, description, task }),
       })
     );
+  },
+
+  async getServerInfo(): Promise<ServerInfo> {
+    return handle(await fetch(`${BASE}/server-info`));
+  },
+
+  async getTrainingQueueStatus(): Promise<TrainingQueueStatus> {
+    return handle(await fetch(`${BASE}/training-queue/status`));
   },
 
   async deleteProject(name: string): Promise<{ message: string }> {
@@ -307,9 +318,18 @@ export const api = {
     return handle(
       await fetch(`${BASE}/projects/${name}/train-jobs`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...identityHeaders() },
         body: JSON.stringify(req),
       })
+    );
+  },
+
+  async cancelTrainJob(name: string, jobId: string): Promise<TrainJobInfo> {
+    return handle(
+      await fetch(
+        `${BASE}/projects/${name}/train-jobs/${encodeURIComponent(jobId)}/cancel`,
+        { method: "POST", headers: identityHeaders() }
+      )
     );
   },
 

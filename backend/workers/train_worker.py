@@ -16,6 +16,7 @@ import argparse
 import json
 import os
 import sys
+import time
 import traceback
 from datetime import datetime
 from pathlib import Path
@@ -112,6 +113,11 @@ def main() -> int:
     # 軽量テスト用 dry-run
     if os.environ.get("YTS_TRAIN_DRY_RUN"):
         print("[INFO] DRY RUN: Ultralytics を読み込まず学習をスキップします。")
+        # Issue #49: FIFOキューのテストで「GPUが空くまで待機中」の状態を確実に
+        # 観測するための任意の遅延（未設定時は従来通り即完了、挙動変化なし）。
+        delay_ms = int(os.environ.get("YTS_TRAIN_DRY_RUN_DELAY_MS", "0") or "0")
+        if delay_ms > 0:
+            time.sleep(delay_ms / 1000.0)
         _update_job(
             job_json,
             status="completed",

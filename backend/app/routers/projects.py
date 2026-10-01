@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from ..core.identity import UserIdentity, get_current_user
 from ..schemas.cls import ClassListResponse, ClassListUpdate
 from ..schemas.project import ProjectCreate, ProjectSummary
 from ..schemas.common import MessageResponse
@@ -19,10 +20,16 @@ def list_projects() -> list[ProjectSummary]:
 
 
 @router.post("", response_model=ProjectSummary, status_code=201)
-def create_project(payload: ProjectCreate) -> ProjectSummary:
+def create_project(
+    payload: ProjectCreate, identity: UserIdentity = Depends(get_current_user)
+) -> ProjectSummary:
     try:
         return project_service.create_project(
-            payload.name, payload.description, payload.task
+            payload.name,
+            payload.description,
+            payload.task,
+            owner_user_id=identity.user_id,
+            owner_display_name=identity.display_name,
         )
     except ProjectError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

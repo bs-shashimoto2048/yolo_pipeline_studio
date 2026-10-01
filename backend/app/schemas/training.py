@@ -36,6 +36,9 @@ class TrainJobStartResponse(BaseModel):
     status: str
     run_path: str
     log_path: str
+    # shared server modeでキューイングされた場合の待機順位（1=次に実行、Issue #49）。
+    # 即時起動（local mode、またはGPUが空いていた場合）はNone。
+    queue_position: int | None = None
 
 
 class TrainJobInfo(BaseModel):
@@ -66,6 +69,11 @@ class TrainJobInfo(BaseModel):
     message: str | None = None
     augmentation_preset: str | None = None
     augmentation_params: dict[str, Any] | None = None
+    # Issue #49: shared server modeでのjob所有者識別用（認証ではない）。
+    # shared server mode導入前に作成されたジョブはNone。
+    owner_user_id: str | None = None
+    owner_display_name: str | None = None
+    queued_at: str | None = None
 
 
 class TrainJobListResponse(BaseModel):

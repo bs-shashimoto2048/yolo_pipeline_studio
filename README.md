@@ -118,6 +118,10 @@ npm run dev
 
 本番用ビルドは `npm run build`（出力: `frontend/dist/`）。
 
+複数ユーザーでLAN共有して使い、GPU学習だけを先着順(FIFO)で処理したい場合は
+[`docs/SHARED_SERVER_MODE.md`](docs/SHARED_SERVER_MODE.md) を参照してください
+（既定では無効、`YTS_SHARED_SERVER_MODE=true` で有効化するopt-in機能）。
+
 ---
 
 ## 学習 / SAM / ONNX 機能の導入（任意）

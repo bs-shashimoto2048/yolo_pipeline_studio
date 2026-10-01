@@ -17,3 +17,10 @@ class StubResponse(BaseModel):
     status: str = "not_implemented"
     feature: str
     message: str
+
+
+class ServerInfo(BaseModel):
+    """フロントエンドがshared server mode向けUI（名前入力・queue表示等）を
+    出し分けるためのフラグ（Issue #49）。認証情報は含まない。"""
+
+    shared_server_mode: bool

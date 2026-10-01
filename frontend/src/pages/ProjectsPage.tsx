@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/client";
+import { getOrCreateUserId } from "../api/identity";
 import type { ProjectSummary, ProjectTask } from "../types";
 
 const TASK_LABELS: Record<string, string> = {
@@ -79,6 +80,7 @@ export default function ProjectsPage() {
   const [task, setTask] = useState<ProjectTask>("detect");
   const [error, setError] = useState("");
   const [health, setHealth] = useState("");
+  const [sharedServerMode, setSharedServerMode] = useState(false);
   const navigate = useNavigate();
 
   async function reload() {
@@ -94,6 +96,12 @@ export default function ProjectsPage() {
       .health()
       .then((h) => setHealth(h.message))
       .catch((e) => setHealth("APIに接続できません: " + e));
+    api
+      .getServerInfo()
+      .then((info) => setSharedServerMode(info.shared_server_mode))
+      .catch(() => {
+        /* 取得失敗時はlocal mode相当（所有者列を出さない）として扱う */
+      });
     reload();
   }, []);
 
@@ -247,6 +255,7 @@ export default function ProjectsPage() {
                     <th>クラス</th>
                     <th>学習回数</th>
                     <th>作成日</th>
+                    {sharedServerMode && <th>作成者</th>}
                     <th></th>
                   </tr>
                 </thead>
@@ -281,6 +290,16 @@ export default function ProjectsPage() {
                         <td>{p.class_count}</td>
                         <td>{p.train_count}</td>
                         <td className="muted">{p.created_at ? p.created_at.slice(0, 10) : "-"}</td>
+                        {sharedServerMode && (
+                          <td className="muted">
+                            {p.owner_display_name ?? "—"}
+                            {p.owner_user_id === getOrCreateUserId() && (
+                              <span className="task-badge det" style={{ marginLeft: 6 }}>
+                                自分
+                              </span>
+                            )}
+                          </td>
+                        )}
                         <td>
                           <button onClick={() => navigate(`/p/${p.name}/setup`)}>開く</button>{" "}
                           <button className="danger" onClick={() => onDelete(p.name)}>

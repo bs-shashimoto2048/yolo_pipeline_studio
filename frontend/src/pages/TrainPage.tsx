@@ -7,6 +7,7 @@ import AugmentationPanel from "../components/AugmentationPanel";
 import type {
   DatasetListItem,
   ProjectTask,
+  TrainingQueueStatus,
   TrainJobInfo,
   TrainLogLine,
 } from "../types";
@@ -22,10 +23,12 @@ const MODEL_CANDIDATES: Record<ProjectTask, string[]> = {
 
 function statusClass(status: string): string {
   if (status === "completed") return "success";
-  if (status === "failed") return "error";
+  if (status === "failed" || status === "cancelled") return "error";
   if (status === "running" || status === "queued") return "warn";
   return "muted";
 }
+
+const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
 export default function TrainPage() {
   const { name = "" } = useParams();
@@ -39,6 +42,7 @@ export default function TrainPage() {
   const [errorOnly, setErrorOnly] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [queueStatus, setQueueStatus] = useState<TrainingQueueStatus | null>(null);
   const logBoxRef = useRef<HTMLDivElement>(null);
 
   // フォーム（初期値は task.md 準拠）
@@ -77,6 +81,25 @@ export default function TrainPage() {
     }
   }
 
+  async function reloadQueue() {
+    try {
+      setQueueStatus(await api.getTrainingQueueStatus());
+    } catch {
+      // shared server modeでない場合やAPI未対応の旧backendでも画面は壊さない
+    }
+  }
+
+  async function onCancel(jobId: string) {
+    setError("");
+    try {
+      await api.cancelTrainJob(name, jobId);
+      await reloadJobs();
+      await reloadQueue();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   useEffect(() => {
     reloadDatasets();
     reloadJobs();
@@ -89,6 +112,16 @@ export default function TrainPage() {
         setModel(MODEL_CANDIDATES[t][0]);
       })
       .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name]);
+
+  // shared server modeのFIFOキュー状態（現在実行中/待機中）を定期更新する。
+  // local modeではbackendが常に shared_server_mode:false を返すだけなので、
+  // このポーリング自体は無害（表示も一切発生しない、既存polling基盤を再利用、Issue #49 §40）。
+  useEffect(() => {
+    reloadQueue();
+    const id = window.setInterval(reloadQueue, 3000);
+    return () => window.clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name]);
 
@@ -108,9 +141,10 @@ export default function TrainPage() {
         setLog(l.log);
         setLogLines(l.lines ?? []);
         setErrorSummary(l.error_summary ?? null);
-        if (d.status === "completed" || d.status === "failed") {
+        if (TERMINAL_STATUSES.has(d.status)) {
           if (timerRef.current) window.clearInterval(timerRef.current);
           reloadJobs();
+          reloadQueue();
         }
       } catch (e) {
         setError(String(e));
@@ -286,6 +320,33 @@ export default function TrainPage() {
         </section>
       </div>
 
+      {queueStatus?.shared_server_mode && (
+        <section className="card">
+          <h2>学習キュー（GPU 1台・先着順）</h2>
+          {queueStatus.running ? (
+            <p>
+              現在実行中: <strong>{queueStatus.running.owner_display_name ?? "—"}さん</strong> /{" "}
+              {queueStatus.running.project_name} / {queueStatus.running.job_id}
+            </p>
+          ) : (
+            <p className="muted">現在実行中のジョブはありません。</p>
+          )}
+          <p>
+            待機中: {queueStatus.queued.length}件
+            {queueStatus.queued.length > 0 && (
+              <span className="muted">
+                {" "}
+                （
+                {queueStatus.queued
+                  .map((e) => `${e.position}: ${e.owner_display_name ?? "—"}さん/${e.job_id}`)
+                  .join(", ")}
+                ）
+              </span>
+            )}
+          </p>
+        </section>
+      )}
+
       <section className="card">
         <h2>ジョブ一覧（{jobs.length}）</h2>
         <div className="row">
@@ -314,7 +375,12 @@ export default function TrainPage() {
                 <td>{j.epochs}</td>
                 <td className="muted">{j.created_at ?? "-"}</td>
                 <td>
-                  <button onClick={() => setSelected(j.job_id)}>詳細</button>
+                  <button onClick={() => setSelected(j.job_id)}>詳細</button>{" "}
+                  {(j.status === "queued" || j.status === "running") && (
+                    <button className="danger" onClick={() => onCancel(j.job_id)}>
+                      キャンセル
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}

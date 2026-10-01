@@ -25,10 +25,33 @@ class Settings:
     ).resolve()
 
     # 開発フロントエンドの許可オリジン（CORS）
+    # LAN公開時もフロントエンド(Vite dev server, host: true)が同一オリジンで
+    # /api をプロキシするため、ブラウザからはCORSが一切関与しない
+    # （Vite→backendはサーバー間通信でブラウザのCORS制約対象外）。
+    # そのためshared server mode向けにこの一覧を広げる必要はない(Issue #49 §57-60)。
     cors_origins: list[str] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
     ]
+
+    # Issue #49: 複数ユーザーがLAN経由で同時利用するshared server mode。
+    # 未設定(false)時は既存の1ユーザー利用のまま（挙動に一切変更なし、opt-in）。
+    shared_server_mode: bool = os.environ.get(
+        "YTS_SHARED_SERVER_MODE", ""
+    ).strip().lower() in ("1", "true", "yes")
+
+    # shared server mode時のqueue投入上限（config化、Issue #49 §28/§30）
+    max_queued_jobs_per_user: int = int(
+        os.environ.get("YTS_MAX_QUEUED_JOBS_PER_USER", "2")
+    )
+    max_queued_jobs_global: int = int(
+        os.environ.get("YTS_MAX_QUEUED_JOBS_GLOBAL", "20")
+    )
+
+    # 学習ジョブ開始前の最低空きディスク容量チェック（バイト、Issue #49 §54）
+    train_min_free_disk_bytes: int = int(
+        os.environ.get("YTS_TRAIN_MIN_FREE_DISK_BYTES", str(2 * 1024 * 1024 * 1024))
+    )
 
     # 取り込み対応画像形式（マスター）。フォルダ取り込みはこの範囲内で選択させる。
     allowed_image_suffixes: tuple[str, ...] = (

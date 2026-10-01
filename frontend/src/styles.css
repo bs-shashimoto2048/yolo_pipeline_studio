@@ -170,6 +170,26 @@ input[type="range"] {
   backdrop-filter: blur(8px);
 }
 
+/* shared server mode: 名前入力オーバーレイ（Issue #49） */
+.identity-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 20, 40, 0.45);
+}
+.identity-card {
+  width: 360px;
+  max-width: calc(100vw - 32px);
+}
+.identity-card input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;

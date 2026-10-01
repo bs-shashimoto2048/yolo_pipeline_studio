@@ -31,3 +31,7 @@ class ProjectSummary(BaseModel):
     label_count: int = 0
     class_count: int = 0
     train_count: int = 0  # 学習回数（実験数）
+    # Issue #49: shared server modeでのjob所有者識別用（認証ではない）。
+    # shared server mode導入前に作成された既存プロジェクトはNone（legacy扱い、非破壊）。
+    owner_user_id: str | None = None
+    owner_display_name: str | None = None

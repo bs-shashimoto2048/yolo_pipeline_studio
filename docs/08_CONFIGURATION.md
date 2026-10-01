@@ -13,6 +13,12 @@
 | `allowed_image_suffixes` | `tuple[str, ...]` | `(".jpg", ".jpeg", ".png", ".bmp", ".webp")` | 取り込み対応画像形式（フォルダ取り込み時の選択範囲） |
 | `thumbnail_max_size` | `int` | `256` | サムネイル生成時の最大辺（px） |
 | `min_resolution_warn` | `int` | `320` | 画像選別時の低解像度警告しきい値（最小辺、px未満で警告） |
+| `shared_server_mode` | `bool` | `false`（環境変数 `YTS_SHARED_SERVER_MODE` で上書き可） | Issue #49: 複数ユーザーLAN共有サーバーモード（opt-in） |
+| `max_queued_jobs_per_user` | `int` | `2`（環境変数 `YTS_MAX_QUEUED_JOBS_PER_USER` で上書き可） | shared server mode時の1ユーザーあたり同時投入・待機上限 |
+| `max_queued_jobs_global` | `int` | `20`（環境変数 `YTS_MAX_QUEUED_JOBS_GLOBAL` で上書き可） | shared server mode時のキュー全体の待機上限 |
+| `train_min_free_disk_bytes` | `int` | `2GB`（環境変数 `YTS_TRAIN_MIN_FREE_DISK_BYTES` で上書き可） | 学習開始前の最低空きディスク容量チェックのしきい値 |
+
+詳細は [`SHARED_SERVER_MODE.md`](SHARED_SERVER_MODE.md) を参照。
 
 `REPO_ROOT` はこのファイル自身の位置（`backend/app/core/config.py`）から3階層上として解決される。
 
@@ -39,7 +45,7 @@
 
 ## 環境変数
 
-grep実測で確認された、このプロジェクトが読む環境変数は以下の8個。
+grep実測で確認された、このプロジェクトが読む環境変数は以下の13個。
 
 | 環境変数 | 用途 | 参照元 |
 |---|---|---|
@@ -51,6 +57,11 @@ grep実測で確認された、このプロジェクトが読む環境変数は�
 | `YTS_ONNX_DRY_RUN` | `1`のときONNXエクスポートワーカーがUltralyticsを読み込まずダミーの `model.onnx` を生成する | `backend/workers/onnx_export_worker.py` |
 | `YTS_SAM_DRY_RUN` | `1`のときSAMを読み込まず、bbox/点から擬似polygon候補を生成する | `backend/app/services/sam_service.py` |
 | `YTS_SAM_SIMULATE_NO_DEP` | `1`のときSAM依存未導入エラーを疑似的に発生させる（テスト用） | `backend/app/services/sam_service.py` |
+| `YTS_SHARED_SERVER_MODE` | `true`/`1`/`yes`のとき複数ユーザーLAN共有サーバーモードを有効化（Issue #49） | `backend/app/core/config.py` |
+| `YTS_MAX_QUEUED_JOBS_PER_USER` | shared server mode時の1ユーザーあたり同時投入・待機上限（既定2） | `backend/app/core/config.py` |
+| `YTS_MAX_QUEUED_JOBS_GLOBAL` | shared server mode時のキュー全体の待機上限（既定20） | `backend/app/core/config.py` |
+| `YTS_TRAIN_MIN_FREE_DISK_BYTES` | 学習開始前の最低空きディスク容量チェックのしきい値（バイト、既定2GB） | `backend/app/core/config.py` |
+| `YTS_TRAIN_DRY_RUN_DELAY_MS` | `YTS_TRAIN_DRY_RUN=1`時、dry-run完了前に指定ms待機する（FIFOキューのテスト用、既定0=待機なし） | `backend/workers/train_worker.py` |
 
 いずれも `backend/tests/smoke_*.py` の各スモークテストが、実ML依存やGPU/カメラなしで疎通確認するために設定して使用している。
 

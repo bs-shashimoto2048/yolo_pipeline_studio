@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import IdentityPrompt from "./components/IdentityPrompt";
 import ProjectLayout from "./components/ProjectLayout";
 import ProjectsPage from "./pages/ProjectsPage";
 import SetupPage from "./pages/SetupPage";
@@ -16,7 +17,9 @@ import ReportsPage from "./pages/ReportsPage";
 
 export default function App() {
   return (
-    <Routes>
+    <>
+      <IdentityPrompt />
+      <Routes>
       <Route path="/" element={<ProjectsPage />} />
       <Route path="/p/:name" element={<ProjectLayout />}>
         <Route index element={<Navigate to="setup" replace />} />
@@ -42,6 +45,7 @@ export default function App() {
         <Route path="reports" element={<ReportsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+      </Routes>
+    </>
   );
 }

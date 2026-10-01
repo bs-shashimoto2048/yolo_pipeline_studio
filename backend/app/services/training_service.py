@@ -15,9 +15,11 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import stat
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -25,6 +27,8 @@ from pathlib import Path
 import yaml
 
 from ..core import paths
+from ..core.config import settings
+from ..core.identity import UserIdentity
 from ..schemas.training import (
     TrainJobCreate,
     TrainJobInfo,
@@ -57,6 +61,10 @@ class TrainValidationError(TrainError):
 
 class TrainConflictError(TrainError):
     """同名ジョブの衝突（HTTP 409相当）。"""
+
+
+class TrainForbiddenError(TrainError):
+    """所有者以外によるcancel要求（HTTP 403相当、Issue #49 §33 UX boundary）。"""
 
 
 def _require_project(name: str) -> None:
@@ -145,6 +153,31 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
+def _terminate(pid: int) -> None:
+    """学習プロセス（Ultralytics含む子プロセスツリー）を終了させる（Issue #49 §32）。
+
+    Ultralyticsのmodel.train()はブロッキング呼び出しでepoch間フックによる
+    協調的停止の仕組みを持たないため、video_service.stop_job()のような
+    stop.flag方式ではなく直接プロセスを終了させる。Windowsでは子プロセス
+    （dataloader worker等）も含めて終了させるため taskkill /T を使う。
+    """
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except OSError:
+            pass
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        pass
+
+
 def _is_job_active(run_dir: Path) -> bool:
     """既存ジョブが実行中（＝ディレクトリへ一切触れてはいけない状態）かどうかを判定する。
 
@@ -206,8 +239,25 @@ def _prepare_data_train_yaml(ds_dir: Path) -> Path:
     data.setdefault("val", "images/val")
     data.setdefault("test", "images/test")
     out = ds_dir / "data_train.yaml"
-    with out.open("w", encoding="utf-8") as f:
+    # Issue #49: shared server modeのFIFOキューでは、同一datasetへ複数ジョブが
+    # ほぼ同時にprepare_job()される状況が起き得る（直列実行だったlocal modeでは
+    # 顕在化しなかった既存の潜在バグ）。同一ファイルへの並行書き込みで
+    # Windows上 OSError: [Errno 22] Invalid argument を実際に観測したため、
+    # 一意な一時ファイル名 + os.replace による原子的置換へ変更する
+    # （video_service._write_job_jsonと同じ考え方）。書き込む内容自体は
+    # 呼び出し元に依らず決定的（同一ds_dirなら同一内容）なので、置換順が
+    # 入れ替わっても最終結果は壊れない。
+    tmp = ds_dir / f"data_train.yaml.tmp.{os.getpid()}.{threading.get_ident()}"
+    with tmp.open("w", encoding="utf-8") as f:
         yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False)
+    for attempt in range(20):
+        try:
+            os.replace(tmp, out)
+            break
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.01)
     return out
 
 
@@ -304,7 +354,34 @@ def _synthesize_external_job(name: str, run_dir: Path) -> dict | None:
     }
 
 
-def start_job(name: str, req: TrainJobCreate) -> TrainJobStartResponse:
+def _check_free_disk(proj_dir: Path) -> None:
+    """学習開始前の空きディスク容量チェック（Issue #49 §54、軽量・stdlibのみ）。
+
+    GPU空き容量の確認は行わない（training_service はFastAPI本体内で常時importされる
+    軽量プロセス側のモジュールであり、torch等の重量依存を持ち込まない方針のため。
+    CLAUDE.md「軽量/重量依存の分離」参照）。
+    """
+    try:
+        free = shutil.disk_usage(proj_dir).free
+    except OSError:
+        return  # 取得できない場合はチェックをスキップ（安全側: ブロックしない）
+    if free < settings.train_min_free_disk_bytes:
+        min_gb = settings.train_min_free_disk_bytes / (1024**3)
+        raise TrainValidationError(
+            f"空きディスク容量が不足しています（最低 {min_gb:.1f}GB 必要）。"
+            "不要なデータを削除してから再試行してください。"
+        )
+
+
+def prepare_job(
+    name: str, req: TrainJobCreate, identity: UserIdentity | None = None
+) -> str:
+    """学習ジョブを検証し、job.json(status=queued)を書き込む（起動はしない）。
+
+    Popen自体はlaunch_job()が別途行う。shared server modeではこの間に
+    TrainingQueueServiceがGPU空き待ちでキューイングし得るため、
+    「検証・job.json作成」と「実際の起動」を分離している（Issue #49 §18）。
+    """
     _require_project(name)
 
     if not paths.is_valid_project_name(req.job_name):
@@ -331,7 +408,7 @@ def start_job(name: str, req: TrainJobCreate) -> TrainJobStartResponse:
     # train/val パスを事前検証（分かりやすく失敗させる）
     _validate_dataset_paths(ds_dir)
     # Ultralytics 実行用に path を絶対パス化した data_train.yaml を用意（既存data.yaml非破壊）
-    data_train_yaml = _prepare_data_train_yaml(ds_dir)
+    _prepare_data_train_yaml(ds_dir)
 
     # 学習時オーギュメンテーションの解決（未指定なら standard）
     try:
@@ -359,6 +436,7 @@ def start_job(name: str, req: TrainJobCreate) -> TrainJobStartResponse:
     run_dir.mkdir(parents=True, exist_ok=True)
 
     proj_dir = paths.project_dir(name)
+    _check_free_disk(proj_dir)
     rel_run = run_dir.relative_to(proj_dir).as_posix()
     log_path = run_dir / "train.log"
     log_path.touch()  # ログ取得APIが即座に動くように空ファイルを用意
@@ -379,6 +457,7 @@ def start_job(name: str, req: TrainJobCreate) -> TrainJobStartResponse:
         "seed": req.seed,
         "status": "queued",
         "created_at": now,
+        "queued_at": now,
         "started_at": None,
         "finished_at": None,
         "return_code": None,
@@ -389,8 +468,31 @@ def start_job(name: str, req: TrainJobCreate) -> TrainJobStartResponse:
         "message": "queued",
         "augmentation_preset": aug_preset,
         "augmentation_params": aug_params,
+        # Issue #49: job所有者識別用（認証ではない）。未指定(local mode等)はNone。
+        "owner_user_id": identity.user_id if identity else None,
+        "owner_display_name": identity.display_name if identity else None,
     }
     video_service._write_job_json(_job_json_path(name, job_id), job)
+    return job_id
+
+
+def launch_job(name: str, job_id: str) -> TrainJobStartResponse:
+    """job.json(status=queued)が既に存在するジョブを実際に起動する（Popen）。
+
+    job.jsonに保存済みの学習条件からコマンドを再構築するため、backend再起動後
+    (restart recovery)や、キュー内で待機していたジョブの昇格時にも、prepare_job
+    呼び出し時のメモリ上の値を保持する必要なく呼び出せる（Issue #49 §22/§23）。
+    """
+    job = _read_job(name, job_id)
+    if job is None:
+        raise TrainNotFoundError(f"学習ジョブ '{job_id}' が見つかりません。")
+
+    run_dir = paths.train_job_dir(name, job_id)
+    proj_dir = paths.project_dir(name)
+    rel_run = run_dir.relative_to(proj_dir).as_posix()
+    log_path = run_dir / "train.log"
+    ds_dir = paths.dataset_dir(name, job["dataset_name"])
+    data_train_yaml = ds_dir / "data_train.yaml"
 
     # --- worker をサブプロセスで起動（ノンブロッキング）---
     cmd = [
@@ -400,14 +502,14 @@ def start_job(name: str, req: TrainJobCreate) -> TrainJobStartResponse:
         "--data-yaml", str(data_train_yaml),
         "--run-dir", str(run_dir),
         "--project-dir", str(proj_dir),
-        "--model", req.model,
-        "--epochs", str(req.epochs),
-        "--imgsz", str(req.imgsz),
-        "--batch", str(req.batch),
-        "--device", req.device,
-        "--workers", str(req.workers),
-        "--patience", str(req.patience),
-        "--seed", str(req.seed),
+        "--model", job["model"],
+        "--epochs", str(job["epochs"]),
+        "--imgsz", str(job["imgsz"]),
+        "--batch", str(job["batch"]),
+        "--device", job["device"],
+        "--workers", str(job["workers"]),
+        "--patience", str(job["patience"]),
+        "--seed", str(job["seed"]),
     ]
     # 子プロセスの出力を UTF-8 に固定（Windows CP932 による文字化け防止）
     env = os.environ.copy()
@@ -444,11 +546,97 @@ def start_job(name: str, req: TrainJobCreate) -> TrainJobStartResponse:
     return TrainJobStartResponse(
         project_name=name,
         job_id=job_id,
-        job_name=req.job_name,
+        job_name=job["job_name"],
         status="queued",
         run_path=rel_run,
         log_path=f"{rel_run}/train.log",
     )
+
+
+def terminate_and_mark_cancelled(
+    name: str, job_id: str, identity: UserIdentity | None = None
+) -> TrainJobInfo:
+    """実行中/待機中の学習ジョブを強制終了し、job.jsonをcancelledにする（Issue #49 §32）。
+
+    queued状態（まだPopenされていない）の場合はプロセス終了は不要でstatus更新のみ。
+    所有者チェックはセキュリティ境界ではなくUX境界（Issue #49 §33）: identityの
+    user_idが指定され、かつjob側にもowner_user_idが記録されている場合のみ、
+    不一致ならTrainForbiddenErrorとする（どちらか未指定なら従来通り許可する）。
+    """
+    job = _read_job(name, job_id)
+    if job is None:
+        raise TrainNotFoundError(f"学習ジョブ '{job_id}' が見つかりません。")
+
+    status = job.get("status")
+    if status in ("completed", "failed", "cancelled"):
+        raise TrainConflictError(
+            f"学習ジョブ '{job_id}' は既に終了しています（status={status}）。"
+        )
+
+    owner_user_id = job.get("owner_user_id")
+    if identity is not None and identity.user_id and owner_user_id:
+        if identity.user_id != owner_user_id:
+            raise TrainForbiddenError(
+                "自分が投入したジョブのみキャンセルできます。"
+            )
+
+    pid = job.get("pid")
+    if isinstance(pid, int) and _pid_alive(pid):
+        _terminate(pid)
+
+    lock_path = _job_lock_path(name, job_id)
+    video_service._acquire_file_lock(lock_path)
+    try:
+        current = _read_job(name, job_id) or job
+        current["status"] = "cancelled"
+        current["finished_at"] = datetime.now().isoformat(timespec="seconds")
+        current["message"] = "cancelled by user"
+        video_service._write_job_json(_job_json_path(name, job_id), current)
+    finally:
+        video_service._release_file_lock(lock_path)
+
+    return get_job(name, job_id)
+
+
+def _mark_interrupted(name: str, job_id: str) -> None:
+    """backend再起動後、running中だったはずのジョブのPIDが消えていた場合に呼ぶ
+    （Issue #49 §23/§24/§25）。
+
+    同じoutput directoryへの自動再学習は絶対に行わない。failedとして明示し、
+    ユーザーが内容を確認した上で必要なら再投入する方式を採る。
+    """
+    lock_path = _job_lock_path(name, job_id)
+    video_service._acquire_file_lock(lock_path)
+    try:
+        current = _read_job(name, job_id)
+        if current is None:
+            return
+        if current.get("status") in ("completed", "failed", "cancelled"):
+            return
+        current["status"] = "failed"
+        current["finished_at"] = datetime.now().isoformat(timespec="seconds")
+        current["message"] = (
+            "host reboot/backend再起動によりジョブが中断されました。"
+            "安全のため自動再開はしていません。必要な場合は再投入してください"
+            "（Issue #49 §24/§25）。"
+        )
+        video_service._write_job_json(_job_json_path(name, job_id), current)
+    finally:
+        video_service._release_file_lock(lock_path)
+
+
+def start_job(
+    name: str, req: TrainJobCreate, identity: UserIdentity | None = None
+) -> TrainJobStartResponse:
+    """従来互換のショートカット（prepare_job→launch_jobを連続実行）。
+
+    local mode（shared_server_mode=False）はこの関数のまま常に即時起動する
+    （既存の1ユーザー利用の挙動を一切変えない、Issue #49 §4）。
+    shared server modeではrouter層がprepare_job/launch_jobを個別に呼び出し、
+    TrainingQueueService経由でキューイングする。
+    """
+    job_id = prepare_job(name, req, identity)
+    return launch_job(name, job_id)
 
 
 def get_job(name: str, job_id: str) -> TrainJobInfo:

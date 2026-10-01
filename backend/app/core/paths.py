@@ -213,6 +213,25 @@ def model_weight_path(name: str, train_job_id: str, weight_type: str) -> Path:
     return train_job_dir(name, train_job_id) / "weights" / f"{weight_type}.pt"
 
 
+def shared_server_state_dir() -> Path:
+    """shared server mode(Issue #49)の、どのプロジェクトにも属さない全体状態の格納先。
+
+    projects_root配下に置くことで、既存のYTS_PROJECTS_ROOTによるテスト隔離
+    （smoke test等が一時ディレクトリへ差し替える仕組み）をそのまま再利用できる。
+    ディレクトリ名は先頭に`.`を使う。プロジェクト名は`_PROJECT_NAME_RE`
+    （英数・アンダースコア・ハイフンのみ、`.`不可）で検証されるため、
+    どのプロジェクト名とも衝突し得ない予約名になる。
+    """
+    d = projects_root() / ".shared_server"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def training_queue_path() -> Path:
+    """FIFO学習キューの永続化先（Issue #49）。"""
+    return shared_server_state_dir() / "training_queue.json"
+
+
 def ensure_project_skeleton(name: str) -> Path:
     """プロジェクトの標準フォルダ構成を生成し、ルートパスを返す。"""
     root = project_dir(name)

@@ -11,6 +11,10 @@ export interface ProjectSummary {
   label_count: number;
   class_count: number;
   train_count: number;
+  // shared server mode: job/project所有者識別用（認証ではない、Issue #49）。
+  // shared server mode導入前に作成された既存プロジェクトはnull。
+  owner_user_id: string | null;
+  owner_display_name: string | null;
 }
 
 export interface ClassItem {
@@ -456,6 +460,9 @@ export interface TrainJobStartResponse {
   status: string;
   run_path: string;
   log_path: string;
+  // shared server modeでキューイングされた場合の待機順位(1=次に実行)。
+  // 即時起動(local mode、またはGPUが空いていた場合)はnull。
+  queue_position: number | null;
 }
 
 export interface TrainJobInfo {
@@ -482,11 +489,36 @@ export interface TrainJobInfo {
   last_model_path: string | null;
   results_csv_path: string | null;
   message: string | null;
+  // shared server mode: job所有者識別用（認証ではない、Issue #49）。
+  owner_user_id: string | null;
+  owner_display_name: string | null;
+  queued_at: string | null;
 }
 
 export interface TrainJobListResponse {
   project_name: string;
   jobs: TrainJobInfo[];
+}
+
+// shared server mode: FIFO学習キュー（Issue #49）。
+export interface ServerInfo {
+  shared_server_mode: boolean;
+}
+
+export interface QueueEntry {
+  project_name: string;
+  job_id: string;
+  job_name: string | null;
+  owner_display_name: string | null;
+  status: string;
+  queued_at: string | null;
+  position: number; // 0 = running中, 1.. = 待機順位
+}
+
+export interface TrainingQueueStatus {
+  shared_server_mode: boolean;
+  running: QueueEntry | null;
+  queued: QueueEntry[];
 }
 
 export interface TrainLogLine {

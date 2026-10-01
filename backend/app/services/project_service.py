@@ -38,8 +38,23 @@ def project_exists(name: str) -> bool:
     return paths.project_yaml(name).exists()
 
 
+def _name_conflict_message(name: str) -> str:
+    """プロジェクト名衝突時のエラーメッセージ（作成者が分かれば併記する、Issue #49 §44）。"""
+    try:
+        owner = _load_meta(name).get("owner_display_name")
+    except ProjectError:
+        owner = None
+    if owner:
+        return f"プロジェクト '{name}' は既に存在します（作成者: {owner}）。"
+    return f"プロジェクト '{name}' は既に存在します。"
+
+
 def create_project(
-    name: str, description: str = "", task: str = "detect"
+    name: str,
+    description: str = "",
+    task: str = "detect",
+    owner_user_id: str | None = None,
+    owner_display_name: str | None = None,
 ) -> ProjectSummary:
     """プロジェクトを作成し、標準フォルダ構成を生成する。"""
     if not paths.is_valid_project_name(name):
@@ -47,11 +62,26 @@ def create_project(
             "プロジェクト名は英数・アンダースコア・ハイフンのみ使用できます。"
         )
     if project_exists(name):
-        raise ProjectError(f"プロジェクト '{name}' は既に存在します。")
+        raise ProjectError(_name_conflict_message(name))
     if task not in VALID_TASKS:
         raise ProjectError(
             f"task は {' / '.join(VALID_TASKS)} のいずれかを指定してください。"
         )
+
+    # 実際の排他保証はここ（Issue #49 §44）。上のproject_exists()チェックは
+    # わかりやすいエラーメッセージを早期に返すための軽量な事前チェックに過ぎず、
+    # 2リクエストがほぼ同時に来た場合はこちらのmkdir(exist_ok=False)がTOCTOUを防ぐ
+    # （project_exists()はproject.yamlの有無のみ見るチェック・アンド・アクトで、
+    # 単体では別ユーザーのプロジェクトを上書きし得た）。
+    root = paths.project_dir(name)
+    try:
+        root.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        # ディレクトリ自体は存在するがproject.yamlが無い場合は、過去に失敗した
+        # 作成試行の残骸とみなし自己修復する（project.yamlの有無が既存の
+        # project_exists()と同じ「本当に使用中か」の判定基準）。
+        if project_exists(name):
+            raise ProjectError(_name_conflict_message(name)) from None
 
     paths.ensure_project_skeleton(name)
 
@@ -60,6 +90,9 @@ def create_project(
         "description": description,
         "task": task,
         "created_at": datetime.now(timezone.utc).isoformat(),
+        # Issue #49: job/project所有者識別用（認証ではない）。未指定(local mode等)はNone。
+        "owner_user_id": owner_user_id,
+        "owner_display_name": owner_display_name,
     }
     with paths.project_yaml(name).open("w", encoding="utf-8") as f:
         yaml.safe_dump(meta, f, allow_unicode=True, sort_keys=False)
@@ -168,4 +201,6 @@ def get_summary(name: str) -> ProjectSummary:
         label_count=label_count,
         class_count=class_count,
         train_count=train_count,
+        owner_user_id=meta.get("owner_user_id"),
+        owner_display_name=meta.get("owner_display_name"),
     )
