@@ -268,3 +268,9 @@ conf(0.60)・preprocess・contract(v1)、いずれも変更なし。
 `production_model_provenance_v1.md`のmeter_src002節はサマリ（train_job_id/weight
 sha256/conf/preprocessの要点）のみを維持し、詳細はすべて本ドキュメントに委譲する
 （重複を避けるため、同節には本ドキュメントへのリンクのみ追記した）。
+
+> **Issue #40追記**: 本ドキュメントの次Issue推奨2点（near-duplicate 5ペア解消、
+> 4桁目hard-negative改善）に着手した。near-duplicate 5ペアは解消したが
+> （[`meter_src002_v3_provenance.md`](meter_src002_v3_provenance.md)参照）、
+> 4桁目class=4の新規安全な候補は0件だった（物理的なdata scarcity）ため、
+> productionは変更していない。
