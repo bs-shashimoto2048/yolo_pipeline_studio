@@ -89,7 +89,9 @@ def main() -> int:
     ap.add_argument("--weight", required=True)
     ap.add_argument("--export-dir", required=True)
     ap.add_argument("--project-dir", required=True)
-    ap.add_argument("--imgsz", type=int, default=640)
+    ap.add_argument("--imgsz", default="640",
+                     help="正方形は'640'、非正方形（production rect推論と同一shapeでの"
+                          "export用、Issue #47）は'384x640'のように'HxW'で指定")
     ap.add_argument("--opset", type=int, default=12)
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--task", default="detect")
@@ -107,8 +109,16 @@ def main() -> int:
     onnx_out = export_dir / "model.onnx"
     preprocess_required = args.preprocess_required == "1"
 
+    # "384x640" -> [384, 640]（非正方形、production rect推論と同一shape）、
+    # "640" -> 640（正方形、従来互換）
+    imgsz: int | list[int]
+    if "x" in args.imgsz.lower():
+        imgsz = [int(v) for v in args.imgsz.lower().split("x")]
+    else:
+        imgsz = int(args.imgsz)
+
     _update_job(job_json, status="running", started_at=_now(), message="exporting")
-    print(f"[INFO] ONNXエクスポート開始 weight={weight.name} imgsz={args.imgsz} "
+    print(f"[INFO] ONNXエクスポート開始 weight={weight.name} imgsz={imgsz} "
           f"opset={args.opset} simplify={args.simplify} dynamic={args.dynamic} "
           f"half={args.half} device={args.device}")
 
@@ -147,7 +157,7 @@ def main() -> int:
         model = YOLO(str(weight))
         export_kwargs = dict(
             format="onnx",
-            imgsz=args.imgsz,
+            imgsz=imgsz,
             opset=args.opset,
             simplify=args.simplify,
             dynamic=args.dynamic,

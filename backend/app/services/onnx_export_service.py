@@ -105,7 +105,12 @@ def start_export(name: str, req: OnnxExportCreate) -> OnnxExportStartResponse:
         raise OnnxExportValidationError("weight_type は best または last です。")
     if not (11 <= req.opset <= 18):
         raise OnnxExportValidationError("opset は 11〜18 です。")
-    if req.imgsz is not None and not (32 <= req.imgsz <= 4096):
+    if isinstance(req.imgsz, list):
+        if len(req.imgsz) != 2 or not all(32 <= v <= 4096 for v in req.imgsz):
+            raise OnnxExportValidationError(
+                "imgsz を非正方形指定する場合は [height, width] の2要素（各32〜4096）です。"
+            )
+    elif req.imgsz is not None and not (32 <= req.imgsz <= 4096):
         raise OnnxExportValidationError("imgsz は 32〜4096 です。")
     if req.device not in _DEVICES:
         raise OnnxExportValidationError("device は auto / cpu / cuda です。")
@@ -168,13 +173,16 @@ def start_export(name: str, req: OnnxExportCreate) -> OnnxExportStartResponse:
     log_path = export_dir / "export.log"
     log_path.touch()
 
+    # worker CLIへは正方形="640"、非正方形=[h, w]を"384x640"のように渡す
+    # （argparseの単純なint型のままでは非正方形を表現できないため）。
+    imgsz_arg = "x".join(str(v) for v in imgsz) if isinstance(imgsz, list) else str(imgsz)
     cmd = [
         sys.executable, str(_WORKER),
         "--job-json", str(_job_json_path(name, export_job_id)),
         "--weight", str(weight),
         "--export-dir", str(export_dir),
         "--project-dir", str(proj_dir),
-        "--imgsz", str(imgsz),
+        "--imgsz", imgsz_arg,
         "--opset", str(req.opset),
         "--device", req.device,
         "--task", task,

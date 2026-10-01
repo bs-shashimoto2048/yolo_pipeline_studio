@@ -13,7 +13,11 @@ class OnnxExportCreate(BaseModel):
     train_job_id: str = Field(..., examples=["train_001"])
     weight_type: str = "best"  # best | last
     export_job_name: str | None = None  # 省略時は onnx_{train_job_id}_{weight}
-    imgsz: int | None = None  # 省略時は学習ジョブの imgsz（無ければ640）
+    # 省略時は学習ジョブの imgsz（無ければ640）。正方形はint、production rect推論
+    # （rect=True時にUltralyticsが実際に使う非正方形shape）に合わせたexportが必要な
+    # 場合は[height, width]の2要素listを指定する（Issue #47: C++ deployment用ONNX
+    # parity確保のため、PT推論と同一の非正方形input shapeでexportできるようにした）。
+    imgsz: int | list[int] | None = None
     opset: int = 12
     simplify: bool = True
     dynamic: bool = False
@@ -40,7 +44,7 @@ class OnnxExportInfo(BaseModel):
     source_weight_path: str | None = None
     task: str | None = None
     format: str | None = "onnx"
-    imgsz: int | None = None
+    imgsz: int | list[int] | None = None
     opset: int | None = None
     simplify: bool | None = None
     dynamic: bool | None = None
