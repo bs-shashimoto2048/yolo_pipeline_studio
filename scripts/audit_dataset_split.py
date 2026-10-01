@@ -109,6 +109,23 @@ def check_class_distribution(rows: list[dict], gt_column: str, gt_position: int 
     return {s: c.most_common() for s, c in by_split.items()}
 
 
+def check_candidates_against_existing(
+    candidate_stems: list[str], existing_rows: list[dict], raw_dir: Path,
+    hamming_threshold: int = 3, time_window_seconds: int = 600,
+) -> list[dict]:
+    """Issue #41: targeted capture等で新規に得たcandidate stem群を、既存
+    Train/Val/Test（`existing_rows`、split列を持つ）に対してnear-duplicate監査する。
+    既存manifestは一切変更しない（read-only）。Test保護のための主用途。
+    candidate側はsplit="candidate"として扱う（既存split同士の重複チェックは
+    check_near_duplicatesが既に担当するため、ここではcandidate-vs-existingのみ返す）。
+    """
+    synthetic_rows = [{"image_stem": s, "split": "candidate"} for s in candidate_stems]
+    findings = check_near_duplicates(
+        existing_rows + synthetic_rows, raw_dir, hamming_threshold, time_window_seconds,
+    )
+    return [f for f in findings if f["split_a"] == "candidate" or f["split_b"] == "candidate"]
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--manifest", required=True)
@@ -117,6 +134,10 @@ def main() -> None:
     ap.add_argument("--gt-column", default="reading_gt")
     ap.add_argument("--gt-position", type=int, default=None,
                      help="reading_gtの特定桁(0-indexed)のclass分布を見たい場合に指定")
+    ap.add_argument("--candidate-stems-file", default=None,
+                     help="Issue #41: targeted captureで新規に得たstem一覧（1行1stem、"
+                          "拡張子なし）。指定時、既存manifestのTrain/Val/Testに対する "
+                          "near-duplicate監査のみを実行し、通常のsplit自己監査は行わない。")
     ap.add_argument("--hamming-threshold", type=int, default=3)
     ap.add_argument("--time-window-seconds", type=int, default=600)
     ap.add_argument("--skip-near-duplicate", action="store_true",
@@ -127,6 +148,29 @@ def main() -> None:
     raw_dir = Path(args.raw_dir)
     rows = _load_rows(manifest, args.project)
     print(f"manifest: {manifest} ({len(rows)} rows{f', project={args.project}' if args.project else ''})")
+
+    if args.candidate_stems_file:
+        candidate_stems = [
+            s.strip() for s in Path(args.candidate_stems_file).read_text(encoding="utf-8").splitlines() if s.strip()
+        ]
+        exact_overlap = {s for s in candidate_stems if s in {r["image_stem"] for r in rows}}
+        print(f"\n=== candidate vs existing manifest ({len(candidate_stems)} candidate stems) ===")
+        if exact_overlap:
+            print(f"FAIL: exact stem overlap with existing manifest: {sorted(exact_overlap)}")
+        else:
+            print("OK: no exact stem overlap with existing manifest")
+        findings = check_candidates_against_existing(
+            candidate_stems, rows, raw_dir, args.hamming_threshold, args.time_window_seconds,
+        )
+        if findings:
+            print(f"found {len(findings)} candidate-vs-existing near-duplicate pair(s) "
+                  f"(hamming<={args.hamming_threshold}, within {args.time_window_seconds}s):")
+            for f in findings:
+                print(f"  {f['stem_a']}({f['split_a']}) <-> {f['stem_b']}({f['split_b']}) "
+                      f"hamming={f['hamming']} dt={f['delta_seconds']:.0f}s")
+        else:
+            print("OK: no candidate-vs-existing near-duplicates found")
+        return
 
     overlap = check_stem_overlap(rows)
     print("\n=== stem overlap ===")

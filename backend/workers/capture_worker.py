@@ -91,6 +91,60 @@ def _remember_url_source_shared(job_json: Path, backend_dir: str) -> None:
         print(f"[WARN] URL履歴の記録に失敗（撮影自体には影響しません）: {e!r}")
 
 
+def _append_frame_metadata(job_json: Path, stem: str, frame_index: int) -> None:
+    """Issue #41: targeted capture session内の1枚ごとのmetadataを
+    frames.json へ追記する（GTではなく撮影意図の記録。§8参照）。
+
+    job.json の target/purpose は start_session 時点でoptionalに書き込まれる
+    （後方互換: 旧job.jsonにはこれらのkeyが無く、その場合は target_digit_position/
+    target_class は両方Noneのまま記録される）。
+    """
+    try:
+        job_data = json.loads(job_json.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        job_data = {}
+    target = job_data.get("target") or {}
+    session_id = job_json.parent.name
+    frames_path = job_json.parent / "frames.json"
+    lock_path = Path(str(frames_path) + ".lock")
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from predict_video_worker import _acquire_job_lock, _release_job_lock  # noqa: PLC0415
+
+    _acquire_job_lock(lock_path)
+    try:
+        try:
+            frames = json.loads(frames_path.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError):
+            frames = []
+        frames.append({
+            "stem": stem,
+            "captured_at": _now(),
+            "source": session_id,
+            "target_digit_position": target.get("digit_position"),
+            "target_class": target.get("target_class"),
+            "frame_index": frame_index,
+            "review_status": "unreviewed",
+            "note": None,
+        })
+        tmp = frames_path.with_suffix(frames_path.suffix + ".tmp")
+        tmp.write_text(json.dumps(frames, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(tmp, frames_path)
+    finally:
+        _release_job_lock(lock_path)
+
+
+def _max_frames_reached(job_json: Path, captured_count: int) -> bool:
+    """Issue #41: max_frames指定時、達したら撮影ループを終了させる
+    （同一physical transitionの連写水増し防止、§9）。"""
+    try:
+        job_data = json.loads(job_json.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    max_frames = job_data.get("max_frames")
+    return isinstance(max_frames, int) and max_frames > 0 and captured_count >= max_frames
+
+
 def _save_captured_frame(job_json: Path, backend_dir: str, raw_images_dir: Path, frame, cv2) -> tuple[str | None, str | None]:
     """フレームを image_service.save_uploads 経由で raw/images に保存する。
 
@@ -207,6 +261,12 @@ def main() -> int:
                         _update_job(job_json, captured_count=captured_count, last_captured_at=_now(),
                                     last_captured_filename=item.stored_name,
                                     message=f"{captured_count}枚撮影済み（最新: {item.stored_name}, dry-run）")
+                        _append_frame_metadata(job_json, Path(item.stored_name).stem, captured_count)
+                        if _max_frames_reached(job_json, captured_count):
+                            print(f"[INFO] max_frames（{captured_count}枚）に到達したため終了します（dry-run）。")
+                            _update_job(job_json, status="stopped", finished_at=_now(),
+                                        message=f"max_frames到達（{captured_count}枚）で停止（dry-run）")
+                            break
                     elif item:
                         # 実処理側(_save_captured_frame)と同様、addedにならなかった場合も
                         # 原因をログへ残す（以前は無条件に無視され、原因不明のまま撮影枚数が
@@ -410,6 +470,12 @@ def main() -> int:
                         message=f"{captured_count}枚撮影済み（最新: {filename}）",
                     )
                     print(f"[INFO] 撮影しました: {filename}")
+                    _append_frame_metadata(job_json, Path(filename).stem, captured_count)
+                    if _max_frames_reached(job_json, captured_count):
+                        print(f"[INFO] max_frames（{captured_count}枚）に到達したため終了します。")
+                        _update_job(job_json, status="stopped", finished_at=_now(),
+                                     message=f"max_frames到達（{captured_count}枚）で停止")
+                        break
                 else:
                     print(f"[WARN] 撮影に失敗しました: {err}")
 

@@ -161,3 +161,11 @@ selected_model.json・preprocess・contract(v1)、いずれも本Issueで一切�
 stem overlap・hash監査のみを実施した（§2参照）。Test66のGTをmodel改善判断へ
 使用していない。Test66由来の画像を新規primaryやhard-negativeとして学習に
 使用していない。
+
+> **Issue #41追記**: further improvement blocked pending new targeted capture.
+> 既存raw画像プールからの安全な新規class4補充が不可能と確定したため、Issue #41で
+> 新規にrare-class専用のcapture workflow（target metadata・frames.json記録・
+> near-duplicate監査・candidate manifest export）を整備した。次のdigital
+> hard-negative改善Issueは、position3/class4のaccepted independent primaryが
+> 20件（推奨30〜50件）に達してから起票する。詳細は
+> [`docs/TARGETED_DATA_CAPTURE.md`](../docs/TARGETED_DATA_CAPTURE.md)を参照。

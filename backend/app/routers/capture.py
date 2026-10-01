@@ -6,6 +6,9 @@ from fastapi import APIRouter, HTTPException, Response
 from fastapi.responses import StreamingResponse
 
 from ..schemas.capture import (
+    CaptureFrameListResponse,
+    CaptureFrameMetadata,
+    CaptureFrameReviewUpdate,
     CaptureNowResult,
     CaptureSessionCreate,
     CaptureSessionInfo,
@@ -132,6 +135,41 @@ def get_capture_frame(name: str, sid: str) -> Response:
     except OSError as e:
         raise HTTPException(status_code=404, detail="フレームの読み込みに失敗しました。") from e
     return Response(content=data, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
+@router.get("/capture-sessions/{sid}/frames", response_model=CaptureFrameListResponse)
+def list_capture_frames(name: str, sid: str) -> CaptureFrameListResponse:
+    """Issue #41: targeted capture sessionで撮影された各フレームのmetadata一覧
+    （GTではなく撮影意図＋review状態の記録）。"""
+    try:
+        return capture_service.list_frames(name, sid)
+    except (CaptureNotFoundError, ProjectError) as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.patch("/capture-sessions/{sid}/frames/{stem}/review", response_model=CaptureFrameMetadata)
+def update_capture_frame_review(name: str, sid: str, stem: str, payload: CaptureFrameReviewUpdate) -> CaptureFrameMetadata:
+    """unreviewed/accepted/rejected_duplicate/rejected_ambiguous/rejected_wrong_target
+    のいずれかへ人手で確定する（自動GT化はしない、Issue #41 §8/§14）。"""
+    try:
+        return capture_service.update_frame_review(name, sid, stem, payload)
+    except CaptureValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except (CaptureNotFoundError, ProjectError) as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.get("/capture-sessions/{sid}/candidate-manifest")
+def export_capture_candidate_manifest(name: str, sid: str) -> Response:
+    """candidate manifest（CSV）を出力する（Issue #41 §21）。"""
+    try:
+        csv_text = capture_service.export_candidate_manifest(name, sid)
+    except (CaptureNotFoundError, ProjectError) as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    return Response(
+        content=csv_text, media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{sid}_candidate_manifest.csv"'},
+    )
 
 
 @router.get("/capture-sessions/{sid}/stream")

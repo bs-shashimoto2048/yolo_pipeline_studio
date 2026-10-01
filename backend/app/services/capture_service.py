@@ -26,6 +26,9 @@ from pathlib import Path
 
 from ..core import paths
 from ..schemas.capture import (
+    CaptureFrameListResponse,
+    CaptureFrameMetadata,
+    CaptureFrameReviewUpdate,
     CaptureNowResult,
     CaptureSessionCreate,
     CaptureSessionInfo,
@@ -86,6 +89,12 @@ resolve_source_url = video_service.resolve_source_url
 
 def _job_json_path(name: str, sid: str) -> Path:
     return paths.capture_session_dir(name, sid) / "job.json"
+
+
+def _frames_json_path(name: str, sid: str) -> Path:
+    """Issue #41: targeted capture session内の1枚ごとのmetadata記録先。
+    GTファイルではない（§8、自動annotationはしない）。"""
+    return paths.capture_session_dir(name, sid) / "frames.json"
 
 
 def _job_lock_path(name: str, sid: str) -> Path:
@@ -200,6 +209,12 @@ def start_session(name: str, req: CaptureSessionCreate) -> CaptureSessionInfo:
     elif req.camera_index < 0:
         raise CaptureValidationError("camera_index は0以上の整数です。")
 
+    # --- Issue #41: targeted rare-class capture（全てoptional、既存clientとの後方互換） ---
+    if req.max_frames is not None and req.max_frames < 1:
+        raise CaptureValidationError("max_frames は1以上の整数です。")
+    if req.target is not None and req.target.digit_position is not None and req.target.digit_position < 0:
+        raise CaptureValidationError("target.digit_position は0以上の整数です。")
+
     sid = req.session_name
     sdir = paths.capture_session_dir(name, sid)
     if sdir.exists():
@@ -248,6 +263,11 @@ def start_session(name: str, req: CaptureSessionCreate) -> CaptureSessionInfo:
         "last_captured_at": None,
         "last_captured_filename": None,
         "next_auto_capture_at": next_auto_capture_at,
+        # Issue #41: 全てNone/未指定可能（既存job.jsonを読む旧コードはこれらのkeyを
+        # 単に無視するため後方互換）。
+        "purpose": req.purpose,
+        "target": req.target.model_dump() if req.target else None,
+        "max_frames": req.max_frames,
     }
     video_service._write_job_json(_job_json_path(name, sid), job)
     log_path = sdir / "capture.log"
@@ -558,6 +578,82 @@ def delete_source_config(name: str, source_id: str) -> None:
         _save_source_configs_raw(name, remaining)
     finally:
         video_service._release_file_lock(lock_path)
+
+
+# ---------------------------------------------------------------------------
+# Issue #41: targeted rare-class capture — frame metadata / review / export
+# ---------------------------------------------------------------------------
+
+
+def _read_frames(name: str, sid: str) -> list[dict]:
+    p = _frames_json_path(name, sid)
+    if not p.exists():
+        return []
+    try:
+        return json.loads(p.read_text(encoding="utf-8-sig"))
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def list_frames(name: str, sid: str) -> CaptureFrameListResponse:
+    _require_project(name)
+    if not _validate_id_format(sid):
+        raise CaptureNotFoundError(f"撮影セッション '{sid}' が見つかりません。")
+    sdir = paths.capture_session_dir(name, sid)
+    if not sdir.exists():
+        raise CaptureNotFoundError(f"撮影セッション '{sid}' が見つかりません。")
+    frames = [CaptureFrameMetadata(**f) for f in _read_frames(name, sid)]
+    return CaptureFrameListResponse(project_name=name, session_id=sid, frames=frames)
+
+
+def update_frame_review(name: str, sid: str, stem: str, payload: CaptureFrameReviewUpdate) -> CaptureFrameMetadata:
+    _require_project(name)
+    if not _validate_id_format(sid):
+        raise CaptureNotFoundError(f"撮影セッション '{sid}' が見つかりません。")
+    valid_statuses = {"unreviewed", "accepted", "rejected_duplicate", "rejected_ambiguous", "rejected_wrong_target"}
+    if payload.review_status not in valid_statuses:
+        raise CaptureValidationError(
+            f"review_status は {sorted(valid_statuses)} のいずれかです。"
+        )
+    sdir = paths.capture_session_dir(name, sid)
+    if not sdir.exists():
+        raise CaptureNotFoundError(f"撮影セッション '{sid}' が見つかりません。")
+
+    lock_path = Path(str(_frames_json_path(name, sid)) + ".lock")
+    video_service._acquire_file_lock(lock_path)
+    try:
+        frames = _read_frames(name, sid)
+        for f in frames:
+            if f.get("stem") == stem:
+                f["review_status"] = payload.review_status
+                if payload.note is not None:
+                    f["note"] = payload.note
+                video_service._write_job_json(_frames_json_path(name, sid), frames)
+                return CaptureFrameMetadata(**f)
+        raise CaptureNotFoundError(f"フレーム '{stem}' が見つかりません。")
+    finally:
+        video_service._release_file_lock(lock_path)
+
+
+def export_candidate_manifest(name: str, sid: str) -> str:
+    """candidate manifest（CSV）をテキストとして返す（Issue #41 §21）。
+
+    列: capture_session_id, stem, timestamp, target_position, target_class, review_status
+    自動annotationはしていない（review_statusは人手確認結果、GTそのものではない）。
+    """
+    import csv
+    import io
+
+    frames = _read_frames(name, sid)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["capture_session_id", "stem", "timestamp", "target_position", "target_class", "review_status"])
+    for f in frames:
+        w.writerow([
+            sid, f.get("stem"), f.get("captured_at"),
+            f.get("target_digit_position"), f.get("target_class"), f.get("review_status"),
+        ])
+    return buf.getvalue()
 
 
 def mjpeg_generator(name: str, sid: str):
