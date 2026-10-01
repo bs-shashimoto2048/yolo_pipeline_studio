@@ -144,6 +144,15 @@ position3/class4 accepted independent primary >= 20（推奨30〜50）
 この閾値に達しても**自動で次Issueを起票しない**。人間がdatasetをレビューして
 から次Issueを判断する（§33）。
 
+**accepted dataを次のTrain/Val/Test manifestへ正式に追加する前に、必ず
+`scripts/audit_dataset_split.py`（`--raw-dir`指定のフルmode、raw画像ありの
+ローカル環境で実行）を実行し、cross-split exact overlap・perceptual
+near-duplicateが無いことを確認すること**（Issue #40で発見したcross-split
+near-duplicate問題の再発防止、Issue #45でGate 1 CIへ組み込んだrepo-only
+Layer Aチェックと合わせて、新しいmanifest版を作る際は
+`data_manifests/split_integrity_baseline.json`も忘れずに更新する。
+詳細: `docs/CI_GPU_RUNNER.md` §31）。
+
 ## 9. Smoke test
 
 - `backend/tests/smoke_targeted_capture.py`: target metadata付きセッション作成・

@@ -1,0 +1,30 @@
+{
+  "_comment": "Issue #45: Gate 1 CI向けのsplit integrity baseline。manifestファイルパス（POSIX区切り、repo rootからの相対パス）をkeyとする。新しいsplit versionを正式に採用する際は、このbaselineを対応するprovenance文書の確定値に合わせて人手で更新すること（自動更新しない。Test/Hard-Valのfrozen_splitsは『意図した正当な更新』以外で変化してはならない）。",
+  "data_manifests/meter_src002_split_v3.csv": {
+    "project": "meter_src002",
+    "expected_counts": { "train": 345, "val": 74, "test": 66 },
+    "frozen_splits": {
+      "test": {
+        "count": 66,
+        "stem_set_sha256": "d78b23afa7b1fd201fadab2190da41451930eb3e73ff8355f02618f56f1c1d89"
+      }
+    },
+    "source": "data_manifests/meter_src002_v3_provenance.md (Train345/Val74/Test66, Test66 completely frozen)"
+  },
+  "data_manifests/meter_src004_split_v4.csv": {
+    "project": "meter_src004",
+    "expected_counts": { "train": 405, "val": 58, "test": 41 },
+    "source": "data_manifests/meter_src004_roi_v4_provenance.md"
+  },
+  "data_manifests/meter_src004_hard_val_v2.csv": {
+    "project": "meter_src004",
+    "expected_counts": { "hard_val_v2": 19 },
+    "frozen_splits": {
+      "hard_val_v2": {
+        "count": 19,
+        "stem_set_sha256": "02f75a56fd0f27fad49c74cc7c89413c5908c6a485df52692c5db0bea4ad53e2"
+      }
+    },
+    "source": "Frozen Hard-Val v2 (data_manifests/meter_src004_hard_val_v2.csv, independent production acceptance set)"
+  }
+}

@@ -36,6 +36,28 @@ jobs:
           python-version: "3.10"
           cache: "pip"
 
+      - name: Validate dataset split integrity
+        # Issue #45: Layer A（repo-only、raw画像/cv2不要）のdataset split integrity監査。
+        # 標準ライブラリのみで完結するため、依存インストール前に独立stepとして実行する
+        # （dataset問題をbackend smoke失敗と混同せず素早く検知するため）。
+        # visual near-duplicate監査（Layer B、raw画像必須）はここでは実行しない
+        # （docs/CI_GPU_RUNNER.md参照、ローカル専用）。
+        shell: bash
+        run: |
+          set -e
+          for m in \
+            "data_manifests/meter_src002_split_v3.csv:meter_src002" \
+            "data_manifests/meter_src004_split_v4.csv:meter_src004" \
+            "data_manifests/meter_src004_hard_val_v2.csv:meter_src004" \
+          ; do
+            manifest="${m%%:*}"
+            project="${m##*:}"
+            echo "=== $manifest (project=$project) ==="
+            python scripts/audit_dataset_split.py \
+              --manifest "$manifest" --project "$project" --ci \
+              --baseline data_manifests/split_integrity_baseline.json
+          done
+
       - name: Install backend dependencies (CPU-only, no GPU/production artifact)
         run: |
           python -m pip install --upgrade pip

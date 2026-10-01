@@ -358,3 +358,62 @@ pull_requestを許可するが、こちらはGitHub-hosted runnerでありproduc
 これらの手順自体は本Issueの範囲内で文書化したが、実際のrunnerマシンの用意・
 登録・永続weight配置は、リポジトリ管理者による実インフラ操作が必要なため、
 本Issueの完了条件からは除外する（Issue #38 §20の方針に基づく）。
+
+## 31. Dataset split integrity audit in Gate 1（Issue #45）
+
+Issue #39/#40で発見したdigital production splitのcross-split near-duplicate問題
+（§Issue #39/#40参照）の再発を防ぐため、`scripts/audit_dataset_split.py`のうち
+**raw画像/cv2に依存しないLayer Aチェック**をGate 1へ組み込んだ（独立step
+「Validate dataset split integrity」、`.github/workflows/backend-smoke.yml`）。
+
+### 2層設計
+
+| Check | Gate 1 | Local dataset audit | Gate 2 |
+|---|---|---|---|
+| Exact stem overlap（cross-split / within-split） | Yes | Yes | Optional |
+| Manifest row整合性（必須列・空値・重複行・GT矛盾） | Yes | Yes | Optional |
+| Baseline照合（期待件数・frozen split fingerprint） | Yes | Yes | Optional |
+| Perceptual near-duplicate（raw画像のaHash比較） | No | Yes | No |
+| Production inference/evaluation | No | No | Yes |
+
+Perceptual near-duplicate監査（Layer B）はraw画像を必須とするが、`projects/`は
+gitignore対象でGitHub-hosted runnerのcheckoutに含まれないため、Gate 1では
+**明示的に対象外**として出力する（`visual near-duplicate audit: not part of
+Gate 1`、SKIPとは表示しない。曖昧なSKIPによるsilent successを防ぐため）。
+raw画像を使うLayer Bは、ローカル環境（`--raw-dir`指定）または将来のdataset
+専用auditでのみ実行する。
+
+### 対象manifestとbaseline
+
+```
+data_manifests/meter_src002_split_v3.csv  (project=meter_src002, Digital)
+data_manifests/meter_src004_split_v4.csv  (project=meter_src004, Drum)
+data_manifests/meter_src004_hard_val_v2.csv (project=meter_src004, Frozen Hard-Val v2)
+```
+
+期待件数・frozen split（Digital Test66、Frozen Hard-Val v2）のstem集合
+SHA256 fingerprintは`data_manifests/split_integrity_baseline.json`に記録する。
+**fingerprintはstem名のみのhash**であり、画像内容そのものはhashしない
+（raw画像なしで照合できるようにするため）。
+
+新しいsplit versionを正式採用する際は、対応するprovenance文書（例:
+`meter_src002_v3_provenance.md`）の確定値に合わせて、このbaselineを**人手で**
+更新する（自動更新しない。Test/Hard-Valのfrozen_splitsが「意図しない変化」を
+起こしていないことを検知するための仕組みであるため）。
+
+### CLI使用方法
+
+```powershell
+# CI向け（raw画像なし、baseline照合あり、exit code 0=clean/非0=violation）
+python scripts\audit_dataset_split.py `
+    --manifest data_manifests\meter_src002_split_v3.csv `
+    --project meter_src002 --ci `
+    --baseline data_manifests\split_integrity_baseline.json
+```
+
+### Smoke test
+
+`backend/tests/smoke_dataset_split_integrity.py`: clean/cross-split overlap/
+within-split duplicate/missing column/Test fingerprint mismatchの各caseで
+exit codeとFAILメッセージを検証し、現行3manifestがbaselineに対してcleanで
+あることも確認する。
