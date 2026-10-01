@@ -721,6 +721,13 @@ export interface VideoJobInfo {
 }
 
 // --- カメラ/URL撮影（プロジェクト準備・画像取り込み） ---
+
+// Issue #41: targeted rare-class capture。GTではなく「収集意図」のメタデータ。
+export interface CaptureTarget {
+  digit_position?: number | null;
+  target_class?: string | null;
+}
+
 export interface CaptureSessionCreateRequest {
   session_name: string;
   source_type: "camera" | "url";
@@ -729,6 +736,9 @@ export interface CaptureSessionCreateRequest {
   video_fps: number;
   interval_minutes?: number | null;
   overwrite: boolean;
+  purpose?: string | null;
+  target?: CaptureTarget | null;
+  max_frames?: number | null;
 }
 
 export interface CaptureSessionInfo {
@@ -750,6 +760,83 @@ export interface CaptureSessionInfo {
   last_captured_filename: string | null;
   next_auto_capture_at: string | null;
   stream_url: string | null;
+  purpose?: string | null;
+  target?: CaptureTarget | null;
+  max_frames?: number | null;
+}
+
+// Issue #41/#42: targeted capture frame metadata / review workflow
+export type CaptureReviewStatus =
+  | "unreviewed"
+  | "accepted"
+  | "rejected_duplicate"
+  | "rejected_ambiguous"
+  | "rejected_wrong_target";
+
+export interface CaptureFrameMetadata {
+  stem: string;
+  captured_at: string;
+  source: string;
+  target_digit_position: number | null;
+  target_class: string | null;
+  frame_index: number;
+  review_status: CaptureReviewStatus;
+  note: string | null;
+}
+
+export interface CaptureFrameListResponse {
+  project_name: string;
+  session_id: string;
+  frames: CaptureFrameMetadata[];
+}
+
+export interface CaptureFrameReviewUpdateRequest {
+  review_status: CaptureReviewStatus;
+  note?: string | null;
+}
+
+export interface CaptureReviewSummary {
+  session_id: string;
+  purpose: string | null;
+  target: CaptureTarget | null;
+  status: string;
+  created_at: string | null;
+  captured_count: number;
+  unreviewed_count: number;
+  accepted_count: number;
+  rejected_duplicate_count: number;
+  rejected_ambiguous_count: number;
+  rejected_wrong_target_count: number;
+}
+
+export interface CaptureReviewSummaryListResponse {
+  project_name: string;
+  sessions: CaptureReviewSummary[];
+}
+
+export interface CaptureFrameDuplicateVerdict {
+  stem: string;
+  verdict: "no_overlap" | "near_duplicate";
+  duplicate_splits: string[];
+}
+
+export interface CaptureDuplicateAuditResponse {
+  session_id: string;
+  manifest_path: string;
+  gt_position: number | null;
+  results: CaptureFrameDuplicateVerdict[];
+}
+
+export interface CaptureTargetProgress {
+  project_name: string;
+  digit_position: number | null;
+  target_class: string | null;
+  accepted_total: number;
+  accepted_flagged_duplicate: number;
+  independent_primary: number;
+  threshold_minimum: number;
+  threshold_recommended_low: number;
+  threshold_recommended_high: number;
 }
 
 export interface CaptureSessionListResponse {

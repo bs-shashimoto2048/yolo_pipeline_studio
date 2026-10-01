@@ -78,6 +78,58 @@ class CaptureFrameReviewUpdate(BaseModel):
     note: str | None = None
 
 
+# --- Issue #42: targeted capture review workflow ---
+
+
+class CaptureReviewSummary(BaseModel):
+    """targeted capture 1 sessionぶんのreview進捗サマリ。"""
+
+    session_id: str
+    purpose: str | None = None
+    target: CaptureTarget | None = None
+    status: str = "unknown"
+    created_at: str | None = None
+    captured_count: int = 0
+    unreviewed_count: int = 0
+    accepted_count: int = 0
+    rejected_duplicate_count: int = 0
+    rejected_ambiguous_count: int = 0
+    rejected_wrong_target_count: int = 0
+
+
+class CaptureReviewSummaryListResponse(BaseModel):
+    project_name: str
+    sessions: list[CaptureReviewSummary]
+
+
+class CaptureFrameDuplicateVerdict(BaseModel):
+    stem: str
+    verdict: str  # "no_overlap" | "near_duplicate"
+    duplicate_splits: list[str] = []  # 例: ["train"], ["test"] 。Test内容自体は返さない
+
+
+class CaptureDuplicateAuditResponse(BaseModel):
+    session_id: str
+    manifest_path: str
+    gt_position: int | None = None
+    results: list[CaptureFrameDuplicateVerdict]
+
+
+class CaptureTargetProgress(BaseModel):
+    """project + digit_position + target_class 単位でのセッション跨ぎ集計
+    （Issue #41/#42の再学習開始条件判定用）。"""
+
+    project_name: str
+    digit_position: int | None = None
+    target_class: str | None = None
+    accepted_total: int = 0
+    accepted_flagged_duplicate: int = 0  # acceptedだが監査でnear-duplicateと判明した件数
+    independent_primary: int = 0  # accepted_total - accepted_flagged_duplicate
+    threshold_minimum: int = 20
+    threshold_recommended_low: int = 30
+    threshold_recommended_high: int = 50
+
+
 class CaptureSessionListResponse(BaseModel):
     project_name: str
     sessions: list[CaptureSessionInfo]

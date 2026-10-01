@@ -151,12 +151,74 @@ position3/class4 accepted independent primary >= 20（推奨30〜50）
   既存clientとの後方互換を検証（mock source、production camera/weight不要）。
 - `backend/tests/smoke_audit_dataset_split.py`: near-duplicate判定（同一画像/
   微小shift/明確に異なる画像）とcandidate-vs-existing監査モードを検証。
+- `backend/tests/smoke_targeted_capture_review.py`（Issue #42追加）: review
+  summary一覧・duplicate audit・session跨ぎのtarget progress集計・
+  accepted-onlyのcandidate manifest exportを検証。
 
-## 10. 既知の制約・次候補
+## 10. Review UI（Issue #42）
 
-- フロントエンドUIへのtargeted capture専用コントロールは本Issueでは追加して
-  いない（backend/APIのみ。既存UIから通常の撮影セッション作成経由で`purpose`/
-  `target`/`max_frames`を含むPOSTは可能だが、専用フォームはまだ無い）。
-  次Issue候補（Priority 2: targeted capture session review UX）。
+Issue #41のbackend/API基盤を、人が実際に運用できるレビューUIへ仕上げた。
+画面は新規ページを増やさず、既存のプロジェクト準備画面
+（`frontend/src/pages/SetupPage.tsx` → `ImagesPanel.tsx`）内に
+「レビュー（targeted capture）」タブを追加する形で統合した
+（`frontend/src/components/TargetedCaptureReview.tsx`）。
+
+```
+Capture
+  ↓
+Review（session一覧 → frameごとにAccepted/Duplicate/Ambiguous/Wrong target）
+  ↓
+Duplicate audit（Train/Val/Test、Testは一切変更しない）
+  ↓
+Accepted independent primary（session跨ぎ集計）
+  ↓
+Threshold reached（最低20件、推奨30〜50件）
+  ↓
+Next training Issue（人間が判断して起票。自動では起票しない）
+```
+
+### UI機能
+
+- **Session一覧**: session ID・purpose・target position/class・captured/
+  unreviewed/accepted/rejected件数・created_atを表示。`All` /
+  `Unreviewedあり` / `Completed review` でfilter。target未指定の既存session
+  （purpose/target=null、frames.json無し）も壊れず0件表示される。
+- **新規targeted session作成フォーム**: 既存のsource一覧ベースの撮影UI
+  （`CaptureSourcesPanel`）とは別に、ad-hocなsession_name/target/max_frames
+  指定で直接開始できる最小フォームを用意した（既存UIへの変更はゼロ）。
+- **Frame review**: 1frameずつ、画像・frame index・timestamp・target
+  position/class・現在の状態を表示。GT boxは一切描画しない（§12/§29）。
+  ボタンまたはキーボードショートカット（`A`=Accepted, `D`=Duplicate,
+  `X`=Ambiguous, `W`=Wrong target, `←`/`→`=前後）で判定し、判定後は
+  自動で次のunreviewedへ移動する（§10/11）。既存ページ
+  （AnnotatePage等、別ルート）とのショートカット衝突はない。
+- **Duplicate audit連携**: manifest_path（+ 任意でgt_position）を指定して
+  acceptedフレームを監査し、`No overlap` / `Near duplicate: <split>` を
+  frameごとに表示する。Train/Val/Test側の変更は一切行わない（読み取り専用）。
+- **Candidate manifest export**: 全件・accepted onlyの両方をCSVダウンロード
+  可能。
+- **Accepted independent primary進捗**: 同一 project + digit_position +
+  target_class でsessionを跨いで集計し、`accepted_total −
+  accepted_flagged_duplicate = independent_primary` を表示。最低条件(20)・
+  推奨(30〜50)もあわせて表示するが、**閾値到達を検知してもUIが自動で次Issueを
+  起票することはない**（人間が判断する、§20/§33）。
+
+### 意図的に実装しなかったもの（§13/14、次Issue候補）
+
+- production modelによる推論結果のプレビュー表示は、既存prediction APIが
+  非同期job方式（job作成→polling→結果取得）であり「レビュー1枚ごとに軽量に
+  呼べる」設計ではないため、本Issueでは見送った。実装する場合も、
+  reviewerがbiasされないよう**折りたたみ・既定非表示**にすることを推奨する
+  （§14）。
+- 既存の`CaptureSourcesPanel`（source定義ベースの撮影）自体の変更。
+  ad-hocなtargeted session開始は別の最小フォームとして追加し、既存UIの
+  動作・レイアウトには一切手を入れていない。
+
+## 11. 既知の制約・次候補
+
+- production prediction連携（上記）は未実装。
 - `scripts/audit_dataset_split.py`のGate 1 CIへの常時組み込みは、本Issueでは
   行っていない（軽量・GPU非依存なため将来組み込み可能、Issue #40 §39参照）。
+- フロントエンドの対話的なブラウザ動作確認（実際にクリック操作して視認する
+  テスト）は本Issueでは実施していない。`npm run build`（型チェック込み）と
+  backend smoke testで機能を検証した。

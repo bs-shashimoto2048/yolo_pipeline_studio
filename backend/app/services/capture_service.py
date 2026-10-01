@@ -26,10 +26,14 @@ from pathlib import Path
 
 from ..core import paths
 from ..schemas.capture import (
+    CaptureDuplicateAuditResponse,
+    CaptureFrameDuplicateVerdict,
     CaptureFrameListResponse,
     CaptureFrameMetadata,
     CaptureFrameReviewUpdate,
     CaptureNowResult,
+    CaptureReviewSummary,
+    CaptureReviewSummaryListResponse,
     CaptureSessionCreate,
     CaptureSessionInfo,
     CaptureSessionListResponse,
@@ -37,6 +41,8 @@ from ..schemas.capture import (
     CaptureSourceInfo,
     CaptureSourceListResponse,
     CaptureSourceUpdate,
+    CaptureTarget,
+    CaptureTargetProgress,
 )
 from . import video_service
 from .project_service import ProjectError, project_exists
@@ -635,8 +641,150 @@ def update_frame_review(name: str, sid: str, stem: str, payload: CaptureFrameRev
         video_service._release_file_lock(lock_path)
 
 
-def export_candidate_manifest(name: str, sid: str) -> str:
-    """candidate manifest（CSV）をテキストとして返す（Issue #41 §21）。
+_REVIEW_STATUSES = ("unreviewed", "accepted", "rejected_duplicate", "rejected_ambiguous", "rejected_wrong_target")
+
+
+def _session_review_summary(name: str, sid: str, job: dict) -> CaptureReviewSummary:
+    frames = _read_frames(name, sid)
+    counts = {k: 0 for k in _REVIEW_STATUSES}
+    for f in frames:
+        status = f.get("review_status", "unreviewed")
+        if status in counts:
+            counts[status] += 1
+    target = job.get("target")
+    return CaptureReviewSummary(
+        session_id=sid,
+        purpose=job.get("purpose"),
+        target=CaptureTarget(**target) if target else None,
+        status=job.get("status", "unknown"),
+        created_at=job.get("created_at"),
+        captured_count=int(job.get("captured_count") or 0),
+        unreviewed_count=counts["unreviewed"],
+        accepted_count=counts["accepted"],
+        rejected_duplicate_count=counts["rejected_duplicate"],
+        rejected_ambiguous_count=counts["rejected_ambiguous"],
+        rejected_wrong_target_count=counts["rejected_wrong_target"],
+    )
+
+
+def list_review_summaries(name: str) -> CaptureReviewSummaryListResponse:
+    """Issue #42: 全capture sessionのreview進捗一覧（target未指定の旧sessionも
+    壊さず含める。purpose/targetはNone、frames.jsonが無ければ各countは0になる、§25/§26）。"""
+    _require_project(name)
+    root = paths.capture_sessions_dir(name)
+    summaries: list[CaptureReviewSummary] = []
+    if root.exists():
+        for child in sorted(root.iterdir()):
+            if child.is_dir() and (child / "job.json").exists():
+                job = _read_job(name, child.name)
+                if job is None:
+                    continue
+                summaries.append(_session_review_summary(name, child.name, job))
+    return CaptureReviewSummaryListResponse(project_name=name, sessions=summaries)
+
+
+def _audit_candidates(stems: list[str], manifest_path: str, gt_position: int | None) -> list[CaptureFrameDuplicateVerdict]:
+    """scripts/audit_dataset_split.py のcheck_candidates_against_existingを再利用する
+    （Issue #40で作成・Issue #41で拡張したleakage-guardロジックを重複実装しない）。
+    Test画像の内容自体（stem/pixel）はこの関数の戻り値に含めない（split名のみ返す）。
+    """
+    repo_root = Path(__file__).resolve().parents[3]  # services/app/backend/<repo_root>
+    scripts_dir = repo_root / "scripts"
+    sys.path.insert(0, str(scripts_dir))
+    import audit_dataset_split as ads  # noqa: PLC0415
+
+    manifest_abs = (repo_root / manifest_path).resolve()
+    if not str(manifest_abs).startswith(str(repo_root.resolve())):
+        raise CaptureValidationError("manifest_path はリポジトリ内のみ指定できます。")
+    if not manifest_abs.exists():
+        raise CaptureValidationError(f"manifest_path が見つかりません: {manifest_path}")
+
+    rows = ads._load_rows(manifest_abs, None)
+    # raw画像の実体は projects_root() 配下（YTS_PROJECTS_ROOTで設定変更可能、テスト時は
+    # 一時ディレクトリを指す）にあるため、paths.raw_images_dir() を使い実際の設定済み
+    # rootを経由して解決する（固定で"<repo_root>/projects/..."を組み立てると、production
+    # 以外の環境（smoke test等）で誤った空ディレクトリを参照してしまう）。
+    raw_dir_candidates = {r.get("project") for r in rows if r.get("project")}
+    if len(raw_dir_candidates) == 1:
+        raw_dir = paths.raw_images_dir(next(iter(raw_dir_candidates)))
+    else:
+        raw_dir = paths.raw_images_dir(name)
+
+    exact_overlap = {s for s in stems if s in {r["image_stem"] for r in rows}}
+    findings = ads.check_candidates_against_existing(stems, rows, raw_dir)
+    by_stem: dict[str, set[str]] = {s: set() for s in stems}
+    for f in findings:
+        cand_stem = f["stem_a"] if f["stem_a"] in by_stem else f["stem_b"]
+        existing_split = f["split_b"] if f["stem_a"] in by_stem else f["split_a"]
+        by_stem.setdefault(cand_stem, set()).add(existing_split)
+    for s in exact_overlap:
+        by_stem.setdefault(s, set()).add("exact_match")
+
+    return [
+        CaptureFrameDuplicateVerdict(
+            stem=s, verdict="near_duplicate" if by_stem[s] else "no_overlap",
+            duplicate_splits=sorted(by_stem[s]),
+        )
+        for s in stems
+    ]
+
+
+def run_duplicate_audit(name: str, sid: str, manifest_path: str, gt_position: int | None) -> CaptureDuplicateAuditResponse:
+    """Issue #42 §15-18: accepted frameについて、既存Train/Val/Testとのnear-duplicate
+    監査結果を返す。Testを含め既存manifest・raw画像は一切変更しない（read-only）。"""
+    _require_project(name)
+    if not _validate_id_format(sid):
+        raise CaptureNotFoundError(f"撮影セッション '{sid}' が見つかりません。")
+    if not paths.capture_session_dir(name, sid).exists():
+        raise CaptureNotFoundError(f"撮影セッション '{sid}' が見つかりません。")
+    frames = _read_frames(name, sid)
+    accepted_stems = [f["stem"] for f in frames if f.get("review_status") == "accepted"]
+    results = _audit_candidates(accepted_stems, manifest_path, gt_position)
+    return CaptureDuplicateAuditResponse(
+        session_id=sid, manifest_path=manifest_path, gt_position=gt_position, results=results,
+    )
+
+
+def get_target_progress(
+    name: str, digit_position: int | None, target_class: str | None,
+    manifest_path: str, gt_position: int | None,
+) -> CaptureTargetProgress:
+    """Issue #42 §20-23: project + digit_position + target_class 単位でのセッション
+    跨ぎ集計。accepted_total - accepted_flagged_duplicate = independent_primary。"""
+    _require_project(name)
+    root = paths.capture_sessions_dir(name)
+    accepted_by_session: dict[str, list[str]] = {}
+    if root.exists():
+        for child in sorted(root.iterdir()):
+            if not (child.is_dir() and (child / "job.json").exists()):
+                continue
+            job = _read_job(name, child.name)
+            if job is None:
+                continue
+            target = job.get("target") or {}
+            if target.get("digit_position") != digit_position or target.get("target_class") != target_class:
+                continue
+            frames = _read_frames(name, child.name)
+            accepted = [f["stem"] for f in frames if f.get("review_status") == "accepted"]
+            if accepted:
+                accepted_by_session[child.name] = accepted
+
+    all_accepted = [s for stems in accepted_by_session.values() for s in stems]
+    flagged_duplicate = 0
+    if all_accepted:
+        verdicts = _audit_candidates(all_accepted, manifest_path, gt_position)
+        flagged_duplicate = sum(1 for v in verdicts if v.verdict == "near_duplicate")
+
+    return CaptureTargetProgress(
+        project_name=name, digit_position=digit_position, target_class=target_class,
+        accepted_total=len(all_accepted), accepted_flagged_duplicate=flagged_duplicate,
+        independent_primary=len(all_accepted) - flagged_duplicate,
+    )
+
+
+def export_candidate_manifest(name: str, sid: str, accepted_only: bool = False) -> str:
+    """candidate manifest（CSV）をテキストとして返す（Issue #41 §21、
+    accepted_only は Issue #42 §19 で追加）。
 
     列: capture_session_id, stem, timestamp, target_position, target_class, review_status
     自動annotationはしていない（review_statusは人手確認結果、GTそのものではない）。
@@ -645,6 +793,8 @@ def export_candidate_manifest(name: str, sid: str) -> str:
     import io
 
     frames = _read_frames(name, sid)
+    if accepted_only:
+        frames = [f for f in frames if f.get("review_status") == "accepted"]
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["capture_session_id", "stem", "timestamp", "target_position", "target_class", "review_status"])

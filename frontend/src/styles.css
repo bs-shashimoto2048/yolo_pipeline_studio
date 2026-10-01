@@ -3219,3 +3219,134 @@ pre {
     position: static;
   }
 }
+
+/* --- targeted capture review workflow（Issue #42） --- */
+.tcr-root {
+  margin-top: 12px;
+}
+
+.tcr-new-form {
+  margin: 8px 0;
+}
+
+.tcr-session-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 0.85rem;
+}
+
+.tcr-session-table th,
+.tcr-session-table td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border, #333);
+}
+
+.tcr-session-row {
+  cursor: pointer;
+}
+
+.tcr-session-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tcr-session-row.active {
+  background: rgba(100, 160, 255, 0.12);
+}
+
+.tcr-review-panel {
+  margin-top: 12px;
+}
+
+.tcr-progress {
+  gap: 16px;
+  margin-bottom: 8px;
+  font-size: 0.9rem;
+}
+
+.tcr-frame-view {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.tcr-frame-image {
+  max-width: 520px;
+  max-height: 420px;
+  width: 100%;
+  object-fit: contain;
+  background: #000;
+  border-radius: 4px;
+}
+
+.tcr-frame-meta {
+  flex: 1;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tcr-review-actions {
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.tcr-act-sep {
+  width: 1px;
+  background: var(--border, #333);
+  margin: 0 4px;
+}
+
+.tcr-thumb-strip {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  margin-top: 12px;
+  padding-bottom: 4px;
+}
+
+.tcr-thumb-btn {
+  flex: none;
+  padding: 2px;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+.tcr-thumb-btn img {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  display: block;
+}
+
+.tcr-thumb-btn.active {
+  border-color: #64a0ff;
+}
+
+.tcr-thumb-btn.status-accepted {
+  box-shadow: 0 0 0 2px rgba(80, 200, 120, 0.6) inset;
+}
+
+.tcr-thumb-btn.status-rejected_duplicate,
+.tcr-thumb-btn.status-rejected_ambiguous,
+.tcr-thumb-btn.status-rejected_wrong_target {
+  opacity: 0.55;
+}
+
+.tcr-audit-form,
+.tcr-progress-form {
+  margin-top: 12px;
+}
+
+.tcr-progress-result {
+  margin-top: 8px;
+  font-size: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}

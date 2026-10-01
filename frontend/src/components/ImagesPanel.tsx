@@ -5,12 +5,13 @@ import { useParams } from "react-router-dom";
 import { api } from "../api/client";
 import CaptureSourcesPanel from "./CaptureSourcesPanel";
 import HoverImagePreview from "./HoverImagePreview";
+import TargetedCaptureReview from "./TargetedCaptureReview";
 import type { FolderImportResponse, ImageInfo, UploadResponse } from "../types";
 
 const ALL_EXTS = [".jpg", ".jpeg", ".png", ".bmp", ".webp"];
 const DEFAULT_EXTS = [".jpg", ".jpeg", ".png"];
 
-type Method = "folder" | "upload" | "capture";
+type Method = "folder" | "upload" | "capture" | "capture_review";
 
 function extOf(filename: string): string {
   const m = /\.[^./\\]+$/.exec(filename);
@@ -127,6 +128,13 @@ export default function ImagesPanel() {
         <button type="button" className={method === "capture" ? "" : "secondary"} onClick={() => setMethod("capture")}>
           カメラ・URLで撮影
         </button>
+        <button
+          type="button"
+          className={method === "capture_review" ? "" : "secondary"}
+          onClick={() => setMethod("capture_review")}
+        >
+          レビュー（targeted capture）
+        </button>
       </div>
 
       {method === "folder" && (
@@ -212,6 +220,12 @@ export default function ImagesPanel() {
         <div className="import-method im-method-capture">
           <div className="ds-group-title">カメラ・URLで撮影</div>
           <CaptureSourcesPanel name={name} onCaptured={reload} />
+        </div>
+      )}
+
+      {method === "capture_review" && (
+        <div className="import-method im-method-capture-review">
+          <TargetedCaptureReview name={name} />
         </div>
       )}
 

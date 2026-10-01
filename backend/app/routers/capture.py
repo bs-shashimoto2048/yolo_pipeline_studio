@@ -6,10 +6,12 @@ from fastapi import APIRouter, HTTPException, Response
 from fastapi.responses import StreamingResponse
 
 from ..schemas.capture import (
+    CaptureDuplicateAuditResponse,
     CaptureFrameListResponse,
     CaptureFrameMetadata,
     CaptureFrameReviewUpdate,
     CaptureNowResult,
+    CaptureReviewSummaryListResponse,
     CaptureSessionCreate,
     CaptureSessionInfo,
     CaptureSessionListResponse,
@@ -17,6 +19,7 @@ from ..schemas.capture import (
     CaptureSourceInfo,
     CaptureSourceListResponse,
     CaptureSourceUpdate,
+    CaptureTargetProgress,
 )
 from ..services import capture_service
 from ..services.capture_service import (
@@ -160,16 +163,57 @@ def update_capture_frame_review(name: str, sid: str, stem: str, payload: Capture
 
 
 @router.get("/capture-sessions/{sid}/candidate-manifest")
-def export_capture_candidate_manifest(name: str, sid: str) -> Response:
-    """candidate manifest（CSV）を出力する（Issue #41 §21）。"""
+def export_capture_candidate_manifest(name: str, sid: str, accepted_only: bool = False) -> Response:
+    """candidate manifest（CSV）を出力する（Issue #41 §21、accepted_onlyはIssue #42 §19）。"""
     try:
-        csv_text = capture_service.export_candidate_manifest(name, sid)
+        csv_text = capture_service.export_candidate_manifest(name, sid, accepted_only)
     except (CaptureNotFoundError, ProjectError) as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     return Response(
         content=csv_text, media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{sid}_candidate_manifest.csv"'},
     )
+
+
+@router.get("/capture-sessions-review-summary", response_model=CaptureReviewSummaryListResponse)
+def list_capture_review_summaries(name: str) -> CaptureReviewSummaryListResponse:
+    """Issue #42: 全capture sessionのreview進捗一覧（target未指定の既存sessionも
+    含む。§5/§25/§26）。"""
+    try:
+        return capture_service.list_review_summaries(name)
+    except ProjectError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.get("/capture-sessions/{sid}/duplicate-audit", response_model=CaptureDuplicateAuditResponse)
+def get_capture_duplicate_audit(
+    name: str, sid: str, manifest_path: str, gt_position: int | None = None
+) -> CaptureDuplicateAuditResponse:
+    """Issue #42 §15-18: acceptedなframeについて、既存Train/Val/Testとの
+    near-duplicateを監査する（scripts/audit_dataset_split.py相当のロジックを再利用、
+    read-only。Test画像の内容自体は返さずsplit名のみ返す）。"""
+    try:
+        return capture_service.run_duplicate_audit(name, sid, manifest_path, gt_position)
+    except CaptureValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except (CaptureNotFoundError, ProjectError) as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+
+@router.get("/targeted-capture-progress", response_model=CaptureTargetProgress)
+def get_targeted_capture_progress(
+    name: str, manifest_path: str, digit_position: int | None = None,
+    target_class: str | None = None, gt_position: int | None = None,
+) -> CaptureTargetProgress:
+    """Issue #42 §20-23: project + digit_position + target_class 単位での
+    セッション跨ぎaccepted independent primary集計（次training issue起票の
+    判断材料。閾値到達の自動Issue化はしない、Issue #41 §33）。"""
+    try:
+        return capture_service.get_target_progress(name, digit_position, target_class, manifest_path, gt_position)
+    except CaptureValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except ProjectError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
 
 @router.get("/capture-sessions/{sid}/stream")

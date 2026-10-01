@@ -55,7 +55,12 @@ import type {
   PredictLogResponse,
   PredictResultsResponse,
   CameraListResponse,
+  CaptureDuplicateAuditResponse,
+  CaptureFrameListResponse,
+  CaptureFrameMetadata,
+  CaptureFrameReviewUpdateRequest,
   CaptureNowResult,
+  CaptureReviewSummaryListResponse,
   CaptureSessionCreateRequest,
   CaptureSessionInfo,
   CaptureSessionListResponse,
@@ -63,6 +68,7 @@ import type {
   CaptureSourceInfo,
   CaptureSourceListResponse,
   CaptureSourceUpdateRequest,
+  CaptureTargetProgress,
   VideoJobCreateRequest,
   VideoJobInfo,
   VideoJobListResponse,
@@ -462,6 +468,63 @@ export const api = {
   // MJPEG(stream)を同時に何本も張るとブラウザの同時接続数上限に達するため）。
   captureFrameUrl(name: string, sid: string): string {
     return `${BASE}/projects/${name}/capture-sessions/${encodeURIComponent(sid)}/frame`;
+  },
+
+  // --- Issue #41/#42: targeted rare-class capture review workflow ---
+  async listCaptureReviewSummaries(name: string): Promise<CaptureReviewSummaryListResponse> {
+    return handle(await fetch(`${BASE}/projects/${name}/capture-sessions-review-summary`));
+  },
+
+  async listCaptureFrames(name: string, sid: string): Promise<CaptureFrameListResponse> {
+    return handle(
+      await fetch(`${BASE}/projects/${name}/capture-sessions/${encodeURIComponent(sid)}/frames`)
+    );
+  },
+
+  async updateCaptureFrameReview(
+    name: string,
+    sid: string,
+    stem: string,
+    req: CaptureFrameReviewUpdateRequest
+  ): Promise<CaptureFrameMetadata> {
+    return handle(
+      await fetch(
+        `${BASE}/projects/${name}/capture-sessions/${encodeURIComponent(sid)}/frames/${encodeURIComponent(stem)}/review`,
+        { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(req) }
+      )
+    );
+  },
+
+  async getCaptureDuplicateAudit(
+    name: string,
+    sid: string,
+    manifestPath: string,
+    gtPosition?: number | null
+  ): Promise<CaptureDuplicateAuditResponse> {
+    const params = new URLSearchParams({ manifest_path: manifestPath });
+    if (gtPosition !== undefined && gtPosition !== null) params.set("gt_position", String(gtPosition));
+    return handle(
+      await fetch(`${BASE}/projects/${name}/capture-sessions/${encodeURIComponent(sid)}/duplicate-audit?${params}`)
+    );
+  },
+
+  async getTargetedCaptureProgress(
+    name: string,
+    manifestPath: string,
+    digitPosition?: number | null,
+    targetClass?: string | null,
+    gtPosition?: number | null
+  ): Promise<CaptureTargetProgress> {
+    const params = new URLSearchParams({ manifest_path: manifestPath });
+    if (digitPosition !== undefined && digitPosition !== null) params.set("digit_position", String(digitPosition));
+    if (targetClass !== undefined && targetClass !== null) params.set("target_class", targetClass);
+    if (gtPosition !== undefined && gtPosition !== null) params.set("gt_position", String(gtPosition));
+    return handle(await fetch(`${BASE}/projects/${name}/targeted-capture-progress?${params}`));
+  },
+
+  captureCandidateManifestUrl(name: string, sid: string, acceptedOnly = false): string {
+    const params = acceptedOnly ? "?accepted_only=true" : "";
+    return `${BASE}/projects/${name}/capture-sessions/${encodeURIComponent(sid)}/candidate-manifest${params}`;
   },
 
   // --- 映像（カメラ）推論 ---
