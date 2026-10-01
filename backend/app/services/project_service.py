@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import time
 from datetime import datetime, timezone
 
 import yaml
@@ -22,6 +23,12 @@ class ProjectConflictError(ProjectError):
 
 # 有効なタスク種別
 VALID_TASKS = ("detect", "segment")
+
+# 新規ディレクトリ作成(mkdir)からproject.yaml書き込みまでの間に、別リクエストが
+# 同名でmkdirしに来て衝突した場合の「本当に過去の失敗の残骸か」判定しきい値(秒)。
+# video_service._acquire_file_lockの「ロックファイルのmtime年齢でstale判定する」
+# のと同じ考え方(Issue #50で実HTTP経由のrace testにより発見・修正)。
+_ORPHAN_DIR_STALE_SECONDS = 5.0
 
 
 def list_projects() -> list[ProjectSummary]:
@@ -77,10 +84,24 @@ def create_project(
     try:
         root.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
-        # ディレクトリ自体は存在するがproject.yamlが無い場合は、過去に失敗した
-        # 作成試行の残骸とみなし自己修復する（project.yamlの有無が既存の
-        # project_exists()と同じ「本当に使用中か」の判定基準）。
+        # ディレクトリ自体は存在する。project.yamlが既にあれば明確な衝突。
         if project_exists(name):
+            raise ProjectError(_name_conflict_message(name)) from None
+        # project.yamlがまだ無い場合、2つの可能性がある:
+        #   (a) 過去に失敗した作成試行の残骸（本当に誰も使っていない）
+        #   (b) 別リクエストがほぼ同時にmkdirだけ終えており、project.yaml書き込み
+        #       (ensure_project_skeleton〜yaml.safe_dump)がまだ完了していない最中
+        # (b)を(a)と誤認すると、複数リクエストが同名projectを同時作成できてしまい
+        # 最後に書き込んだユーザーがproject.yamlを上書きする（Issue #50で実HTTP
+        # 経由の同時create_project race testにより実際に検出）。
+        # ディレクトリの生成時刻(mtime)が十分古い場合のみ(a)とみなして自己修復し、
+        # 直近に作られたばかりの場合は(b)とみなして衝突として扱う
+        # （video_service._acquire_file_lockのロックファイルstale判定と同じ考え方）。
+        try:
+            age = time.time() - root.stat().st_mtime
+        except OSError:
+            age = _ORPHAN_DIR_STALE_SECONDS + 1  # 取得不能ならstale側(自己修復)に倒す
+        if age <= _ORPHAN_DIR_STALE_SECONDS:
             raise ProjectError(_name_conflict_message(name)) from None
 
     paths.ensure_project_skeleton(name)

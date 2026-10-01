@@ -433,7 +433,23 @@ def prepare_job(
                 f"学習ジョブ '{job_id}' は既に存在します。"
             )
         _safe_rmtree(run_dir)
-    run_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        run_dir.mkdir(parents=True, exist_ok=False)
+    except FileExistsError:
+        # 上のrun_dir.exists()チェックとこのmkdirの間に、別リクエストが同じ
+        # job_nameで先にディレクトリを作っていた場合のTOCTOU(Issue #50で実HTTP
+        # 経由の同時リクエスト(例: 二重クリック)race testにより発見。project_service
+        # の同名project衝突と同じ根本原因・同じ対処方針)。_is_job_activeは
+        # job.jsonが読めない場合も安全側(実行中とみなす)に倒すため、作成直後で
+        # まだjob.jsonが書かれていないタイミングで衝突してもここで正しく弾ける。
+        if _is_job_active(run_dir):
+            raise TrainConflictError(
+                f"学習ジョブ '{job_id}' は実行中のため上書きできません。"
+                "完了を待つか、別の job_name を指定してください。"
+            ) from None
+        raise TrainConflictError(
+            f"学習ジョブ '{job_id}' は既に存在します。"
+        ) from None
 
     proj_dir = paths.project_dir(name)
     _check_free_disk(proj_dir)

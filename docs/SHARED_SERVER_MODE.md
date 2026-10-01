@@ -159,6 +159,109 @@ Windowsがスリープ状態に入った場合、実行中の学習プロセス�
 されない（OSのスリープ中はすべてのプロセスが一時停止する一般的な制約）。
 長時間学習を行う場合は、サーバーPCの電源設定でスリープを無効化すること。
 
+## 実機acceptance結果（Issue #50）
+
+Issue #49の実装を、実ブラウザ(Chrome×2プロファイル + Edge)・実RTX 4070 Laptop
+GPU・実uvicorn/Vite dev serverで検証した（TestClientではない、実プロセス2つ
++ 実ネットワーク経由）。
+
+### 実GPU sequential training確認
+
+3ユーザー(日本語表示名含む、橋本/テストB/テストC)がそれぞれ別プロジェクトから
+実際にUltralytics学習ジョブを投入し、FIFO順で自動的に1件ずつ実行されることを
+確認した。ログに`CUDA:0 (NVIDIA GeForce RTX 4070 Laptop GPU, 8188MiB)`が実際に
+出力され、本物のGPU学習であることを確認済み。
+
+- 投入順どおりのFIFO実行、3件同時キュー状態(running 1件+queued 2件)のAPI
+  スナップショットおよび実ブラウザのqueue widgetで同一状態を確認
+- 各jobの出力ディレクトリ(`runs/train/<job_id>`)は衝突せず独立
+- GPU training processは常に1件のみ(`training_queue_service`のファイルロックに
+  より保証。nvidia-smiの`--query-compute-apps`はこの環境のWDDMドライバでは
+  CUDAプロセスを確実に列挙できない既知の制約があり、代わりにログの`CUDA:0`
+  出力と、training_queue_service自体のrace test(8並列launch_job呼び出しでも
+  同時実行数が常に1であることを確認する自動テスト)で検証した
+
+### 50枚規模の参考training時間
+
+| 項目 | 値 |
+|---|---|
+| dataset images | 50枚(train 40/val 10) |
+| model | yolov8n.pt |
+| epochs | 50 |
+| imgsz/batch | 640 / 16 |
+| GPU | RTX 4070 Laptop |
+| queued時間 | 約27秒(先行2ジョブの完了待ち) |
+| running時間 | 約41秒 |
+| 合計(投入→完了) | 約68秒 |
+
+参考スループット: 1 job(50枚, 50 epochs)あたり約40秒前後。3 job連続実行でも
+GPU使用率/単体時間に劣化は見られなかった。この環境特有の極小datasetのため、
+実際の社内利用（より大きいdataset・より多いepochs）ではこれより長くなる点に
+注意（将来のqueue ETA設計時は、この値をそのまま流用せず別途実測すること）。
+
+### tested browsers
+
+- Google Chrome（プロファイル分離2窓、User A/User C相当）
+- Microsoft Edge（User B相当）
+- 日本語display name（橋本/テストB/テストC、および24文字の長い表示名）が
+  文字化けなく往復することを確認（`encodeURIComponent`/`unquote`の実通信経路）
+- 1920px/1366px幅でプロジェクト一覧・学習キュー表示のレイアウト崩れ無し
+  （長い表示名は1366px幅でセル内折り返し、テーブル自体は崩れない）
+
+### restart behavior（実クラッシュで確認）
+
+1. backendプロセスのみkill（学習プロセスは生存） → 再起動後、`running`状態
+   ・PIDとも維持され、誤ってfailed化されないことを確認
+2. backendプロセス+実学習プロセスの両方をkill（PC電源断相当） → 再起動後、
+   該当jobは`failed`、メッセージに中断された旨が明示され、**同じoutput
+   directoryへの自動再開は一切発生しない**ことを確認（新規プロセスが
+   0件であることをプロセス一覧で確認済み）
+
+### idle CPU/GPU
+
+shared server mode起動したまま、学習ジョブが無い状態で約5.5分間放置して測定。
+
+| | 開始時 | 約5.5分後 |
+|---|---|---|
+| backend working set | 59.0MB | 59.9MB |
+| backend 累積CPU時間 | 0.8秒 | 1.78秒(差分約1秒) |
+| GPU使用率 | 0% | 0% |
+| GPU memory | 298MiB | 298MiB |
+| GPU電力 | 2.63W | 2.66W |
+
+3秒間隔のqueue監視background taskによる追加負荷は実測上ごくわずか(5.5分で
+CPU時間+1秒程度)。メモリ増加・スピンループは観測されなかった。
+
+### training中のVRAM/RAM（実測）
+
+- VRAM: 約1.9〜1.94GB（yolov8n, imgsz=640, batch=16, 50枚datasetの場合）
+- GPU使用率: 約29%、電力約35W（同条件）
+- 学習worker process(実インタプリタ側)の working set: 約5.9GB
+  （PyTorch/CUDAランタイム込み。backend本体は61MB程度のままで重量依存を
+  importしない設計が実測でも維持されている）
+
+### Issue #50で発見・修正した実バグ（2件）
+
+実HTTP経由の同時リクエストテストで、Issue #49時点のTestClientベースのテスト
+では検出できなかった、以下2件のTOCTOU(check-then-act)レースを発見・修正した。
+いずれも「ディレクトリ存在チェック→(exist_ok=True)でのmkdir」という同じ
+アンチパターンで、`project_service.create_project()`は既にexist_ok=False化
+済みだったが、以下2箇所に同種の問題が残っていた。
+
+1. **project名衝突**: `project_service.create_project()`の自己修復ロジック
+   (「project.yamlが無ければ過去の残骸とみなす」)が、mkdir成功から
+   project.yaml書き込み完了までの間に来た別リクエストを誤って通してしまい、
+   5並列requestで5件とも201になる実害を確認。ディレクトリのmtime年齢で
+   stale判定するよう修正（5秒以内はactive race、5秒超は過去の残骸）。
+2. **training job名衝突**: `training_service.prepare_job()`の
+   `run_dir.mkdir(parents=True, exist_ok=True)`が非原子的だった(GILの影響で
+   再現確率は低いが、10並列requestで複数回201が出ることを確認)。
+   `exist_ok=False` + `_is_job_active()`再判定方式へ修正。
+
+両方とも実HTTP経由で修正後に複数回(各3回以上)再検証し、安定して1件のみ成功・
+残りは409になることを確認した。自動回帰テスト
+(`smoke_project_creation_race.py`/`smoke_training_job_race.py`)を追加済み。
+
 ## 既知の制約
 
 - フロントエンドのengine選択等と同様、プロジェクトACL（アクセス制御）は
