@@ -206,3 +206,6 @@ CIでの実行方式（CPU/GPU gate分離・self-hosted GPU runner設計）は
 - [`docs/architecture.md`](docs/architecture.md) — システム構成・データレイアウト・ワーカー方式・設計方針
 - [`docs/api-reference.md`](docs/api-reference.md) — REST API エンドポイント一覧
 - [`docs/development.md`](docs/development.md) — 開発セットアップ・規約・テスト・拡張手順
+- [`docs/CPP_DEPLOYMENT_CONTRACT.md`](docs/CPP_DEPLOYMENT_CONTRACT.md) /
+  [`docs/CPP_INFERENCE_BENCHMARK.md`](docs/CPP_INFERENCE_BENCHMARK.md) —
+  production modelをC++（ONNX Runtime）へ移植するためのPoC（`cpp/`、実システム未統合）

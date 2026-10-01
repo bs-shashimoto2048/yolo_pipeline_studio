@@ -59,3 +59,12 @@ scratch/
 *.swp
 .DS_Store
 Thumbs.db
+
+# ===== C++ deployment PoC（Issue #48） =====
+# ONNX Runtime/OpenCV等の third-party binary一式・CMakeビルド生成物・Visual Studio
+# キャッシュはcommitしない（巨大・machine-specific・再取得可能なため）。
+cpp/third_party/
+cpp/build/
+.vs/
+# machine-specific benchmark生出力（要約はdocs/CPP_INFERENCE_BENCHMARK.mdへ記載）
+cpp/benchmark/results/

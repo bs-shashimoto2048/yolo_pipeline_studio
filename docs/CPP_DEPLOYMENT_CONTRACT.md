@@ -219,3 +219,10 @@ Digitalモデルが将来rare-class追加データで再学習された場合の
 Issue #48でC++ ONNX Runtime推論PoC + benchmark（CMake、ONNX Runtime C++、OpenCV前処理、
 Digital/Drum pipeline、PT/Python parity、CPU/CUDA latency、memory、FPS、warm-up、release build）
 を行う。本Issueで固定した契約がそのPoCの仕様書となる。
+
+## Issue #48実装状況（追記）
+
+本契約はC++（`cpp/`、CMake + ONNX Runtime C++ + OpenCV C++）で実装され、
+Digital/Drumとも30/30サンプルでC++/ONNX ↔ Python/ONNXの完全一致（conf差<=1e-6、
+bbox差<=0.001px）を確認した。詳細なbuild手順・依存バージョン・benchmark結果・
+既知の制約は `docs/CPP_INFERENCE_BENCHMARK.md` を参照。
