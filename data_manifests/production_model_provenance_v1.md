@@ -23,6 +23,11 @@ runtime設定が消失した場合の監査・再現用の記録専用ファイ�
 - conf: **0.60**
 - preprocessing: ROI disabled / width640 / grayscale / sharpen(strength=1.0)
 
+> **Issue #39追記**: dataset lineage・split integrity・独立acceptanceの詳細監査は
+> [`meter_src002_production_provenance.md`](meter_src002_production_provenance.md)
+> を参照。Case B判定（4桁目`4→5`混同、Train内極端なクラス不均衡2 vs 347が原因）。
+> production設定（weight/conf/preprocess/contract）は本Issueで変更していない。
+
 ### meter_src003
 - train_job_id: `production_combined_v2_5z`（同上、`meter_src002`とは別ファイルとしてcopy、内容は同一）
 - weight_type: `best`
