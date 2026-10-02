@@ -7,6 +7,9 @@ Issue #49。このPCをLAN内の学習サーバーとして使い、複数ユー
 **既定では無効（opt-in）。** 有効化しない限り、既存の1ユーザー利用の挙動は一切
 変わらない。
 
+社内複数ユーザーでの実利用に向けた社内pilot手順・観察項目・アンケートは
+[`SHARED_SERVER_PILOT.md`](SHARED_SERVER_PILOT.md)（Issue #51）を参照。
+
 ## 有効化方法
 
 ```powershell
